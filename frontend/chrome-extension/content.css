@@ -1,0 +1,29 @@
+#lecturelens-root {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 999999;
+}
+
+#lecturelens-pill {
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: #10212f;
+  color: white;
+  font-weight: 700;
+  box-shadow: 0 14px 28px rgba(16, 33, 47, 0.22);
+  cursor: pointer;
+}
+
+#lecturelens-frame {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  border: none;
+  background: #f6fbf8;
+  z-index: 999998;
+  box-shadow: -16px 0 32px rgba(16, 33, 47, 0.15);
+}

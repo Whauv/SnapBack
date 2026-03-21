@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LectureLens Side Panel</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <p class="eyebrow">LectureLens</p>
+        <h1>Meet Catch-Up</h1>
+      </header>
+      <div class="card">
+        <button id="start-session" class="primary">Start Session</button>
+        <button id="leave" class="secondary">I'm Leaving</button>
+        <button id="catch-up" class="primary">I'm Back - Catch Me Up</button>
+      </div>
+      <div class="card">
+        <h2>Latest Recap</h2>
+        <p id="summary">Waiting for your first recap.</p>
+        <div id="keywords" class="keywords"></div>
+      </div>
+      <div class="card">
+        <h2>Transcript</h2>
+        <div id="transcript" class="transcript"></div>
+      </div>
+    </div>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

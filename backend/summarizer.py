@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import json
+
+from groq import Groq
+
+
+SUMMARY_SYSTEM_PROMPT = (
+    "You are a student assistant. Given a segment of a lecture transcript, generate a "
+    "2-3 sentence summary that helps a returning student quickly understand what was "
+    "discussed, what key concepts were introduced, and where the lecture currently is. "
+    "Be concise and use academic language."
+)
+
+
+def _safe_json_array(text: str) -> list[str]:
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return [str(item).strip() for item in data if str(item).strip()]
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+class GroqSummarizer:
+    def __init__(self, api_key: str | None, model: str = "llama-3.3-70b-versatile") -> None:
+        self.api_key = api_key
+        self.model = model
+        self.client = Groq(api_key=api_key) if api_key else None
+
+    def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.2) -> str:
+        if not self.client:
+            return ""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    def generate_summary(self, transcript_text: str, language: str = "English", recap_length: str = "standard") -> str:
+        if not transcript_text.strip():
+            return "No transcript was captured during the requested time window."
+        if not self.client:
+            return self._fallback_summary(transcript_text)
+
+        length_hint = {
+            "brief": "Keep it to 2 sentences max.",
+            "standard": "Keep it to 2-3 sentences.",
+            "detailed": "Use 3 concise sentences if needed.",
+        }.get(recap_length.lower(), "Keep it to 2-3 sentences.")
+
+        user_prompt = (
+            f"Preferred summary language: {language}\n"
+            f"{length_hint}\n\n"
+            f"Transcript segment:\n{transcript_text}"
+        )
+        summary = self._chat(SUMMARY_SYSTEM_PROMPT, user_prompt)
+        return summary or self._fallback_summary(transcript_text)
+
+    def extract_keywords(self, transcript_text: str) -> list[str]:
+        if not transcript_text.strip():
+            return []
+        if not self.client:
+            return self._fallback_keywords(transcript_text)
+
+        prompt = (
+            "Extract 3-5 key academic terms or concepts from this transcript segment as a "
+            f"JSON array of strings.\n\nTranscript:\n{transcript_text}"
+        )
+        response = self._chat("Return only valid JSON.", prompt, temperature=0.0)
+        keywords = _safe_json_array(response)
+        return keywords or self._fallback_keywords(transcript_text)
+
+    def summarize_full_session(self, transcript_text: str, language: str = "English") -> str:
+        if not transcript_text.strip():
+            return "No transcript was captured for this lecture session."
+        if not self.client:
+            return self._fallback_summary(transcript_text, max_sentences=4)
+        prompt = (
+            f"Preferred language: {language}\n"
+            "Summarize the full lecture in 4-6 sentences. Highlight the main throughline, "
+            "important concepts, and what students should review.\n\n"
+            f"Transcript:\n{transcript_text}"
+        )
+        summary = self._chat(
+            "You are a study assistant producing a polished lecture recap.",
+            prompt,
+            temperature=0.2,
+        )
+        return summary or self._fallback_summary(transcript_text, max_sentences=4)
+
+    @staticmethod
+    def _fallback_summary(transcript_text: str, max_sentences: int = 3) -> str:
+        cleaned = " ".join(transcript_text.split())
+        if not cleaned:
+            return "No transcript was captured during the requested time window."
+        sentences = [segment.strip() for segment in cleaned.replace("?", ".").replace("!", ".").split(".") if segment.strip()]
+        preview = ". ".join(sentences[:max_sentences]).strip()
+        return f"{preview}." if preview and not preview.endswith(".") else preview
+
+    @staticmethod
+    def _fallback_keywords(transcript_text: str) -> list[str]:
+        words = [
+            token.strip(".,!?():;[]{}\"'").lower()
+            for token in transcript_text.split()
+        ]
+        stop_words = {
+            "the", "and", "for", "that", "with", "this", "have", "from", "were",
+            "what", "when", "where", "into", "your", "about", "they", "them",
+            "been", "then", "than", "will", "would", "could", "should", "there",
+            "their", "lecture", "because", "which", "while", "after", "before",
+        }
+        frequency: dict[str, int] = {}
+        for word in words:
+            if len(word) < 4 or word in stop_words:
+                continue
+            frequency[word] = frequency.get(word, 0) + 1
+        ranked = sorted(frequency.items(), key=lambda item: (-item[1], item[0]))
+        return [word for word, _ in ranked[:5]]

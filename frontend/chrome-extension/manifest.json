@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "LectureLens",
+  "version": "0.1.0",
+  "description": "Catch up on missed lecture context in Google Meet.",
+  "permissions": ["storage", "activeTab", "scripting", "tabCapture"],
+  "host_permissions": ["http://localhost:8000/*", "https://meet.google.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LectureLens"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content_script.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "commands": {
+    "catch-me-up": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L"
+      },
+      "description": "Trigger Catch Me Up"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sidepanel.html", "sidepanel.js", "sidepanel.css"],
+      "matches": ["https://meet.google.com/*"]
+    }
+  ]
+}
