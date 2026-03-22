@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "lecturelens.db"
+DB_PATH = Path(__file__).resolve().parent / "data" / "snapback.db"
 
 
 def utc_now_iso() -> str:

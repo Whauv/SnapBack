@@ -1,14 +1,14 @@
 (() => {
-  if (document.getElementById("lecturelens-root")) {
+  if (document.getElementById("snapback-root")) {
     return;
   }
 
   const root = document.createElement("div");
-  root.id = "lecturelens-root";
+  root.id = "snapback-root";
 
   const button = document.createElement("button");
-  button.id = "lecturelens-pill";
-  button.textContent = "LectureLens";
+  button.id = "snapback-pill";
+  button.textContent = "SnapBack";
 
   let frame = null;
 
@@ -21,7 +21,7 @@
     }
     if (frame) return;
     frame = document.createElement("iframe");
-    frame.id = "lecturelens-frame";
+    frame.id = "snapback-frame";
     frame.src = chrome.runtime.getURL("sidepanel.html");
     document.body.appendChild(frame);
   }

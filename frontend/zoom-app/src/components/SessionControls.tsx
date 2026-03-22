@@ -7,11 +7,11 @@ type SessionControlsProps = {
   onEnd: () => void;
   onExportPdf: () => void;
   onExportMarkdown: () => void;
-  onExportNotes: () => void;
+  onExportNotion: () => void;
 };
 
 function SessionControls(props: SessionControlsProps) {
-  const { canStart, canEnd, onStart, onEnd, onExportPdf, onExportMarkdown, onExportNotes } = props;
+  const { canStart, canEnd, onStart, onEnd, onExportPdf, onExportMarkdown, onExportNotion } = props;
 
   return (
     <section className="rounded-[24px] bg-mist p-4 dark:bg-slate-800">
@@ -29,13 +29,13 @@ function SessionControls(props: SessionControlsProps) {
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2">
         <button className="rounded-full border border-ink/15 px-3 py-2 text-[11px] font-semibold" onClick={onExportPdf} disabled={!canEnd}>
-          PDF
+          Export PDF
         </button>
         <button className="rounded-full border border-ink/15 px-3 py-2 text-[11px] font-semibold" onClick={onExportMarkdown} disabled={!canEnd}>
           Markdown
         </button>
-        <button className="rounded-full border border-ink/15 px-3 py-2 text-[11px] font-semibold" onClick={onExportNotes}>
-          Notes PDF
+        <button className="rounded-full border border-ink/15 px-3 py-2 text-[11px] font-semibold" onClick={onExportNotion} disabled={!canEnd}>
+          Notion
         </button>
       </div>
     </section>

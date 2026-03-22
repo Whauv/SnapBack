@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Moon } from "lucide-react";
-import jsPDF from "jspdf";
-import { createRecap, endSession, exportSessionFile, getSessionTranscript, startSession } from "./api";
+import { createRecap, endSession, exportToNotion, getSessionTranscript, startSession } from "./api";
 import ConsentBanner from "./components/ConsentBanner";
 import FullSummaryModal from "./components/FullSummaryModal";
 import RecapHistory from "./components/RecapHistory";
@@ -9,6 +8,7 @@ import RecapPanel from "./components/RecapPanel";
 import SessionControls from "./components/SessionControls";
 import SettingsPanel from "./components/SettingsPanel";
 import TranscriptDrawer from "./components/TranscriptDrawer";
+import { exportMarkdownNotes, exportPdfNotes } from "./exporters";
 import type { Mode, Recap, RecapLength, SessionRecord, TranscriptChunk } from "./types";
 import { formatTimestamp } from "./utils";
 
@@ -59,7 +59,7 @@ function App() {
     setSession(data.session);
     setTranscript(data.transcript);
     setRecaps(data.recaps);
-    setLatestSummary((current) => current ?? data.recaps.at(-1) ?? null);
+    setLatestSummary((current) => current ?? data.recaps[data.recaps.length - 1] ?? null);
   }
 
   async function handleStartSession() {
@@ -92,6 +92,9 @@ function App() {
       setFullSummary(data.full_summary);
       setShowSummaryModal(true);
       await loadSession(sessionId);
+      if (notionPageId) {
+        await exportToNotion(sessionId, notionPageId, notionApiKey || undefined);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to end session.");
     } finally {
@@ -115,35 +118,24 @@ function App() {
     }
   }
 
-  async function handleExportFile(type: "pdf" | "markdown") {
-    if (!sessionId) return;
-    try {
-      const blob = await exportSessionFile(type, sessionId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `lecturelens.${type === "pdf" ? "pdf" : "md"}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to export file.");
-    }
+  function handleExportPdf() {
+    exportPdfNotes({ session, transcript, recaps, fullSummary });
   }
 
-  function exportNotesPdfClientSide() {
-    const pdf = new jsPDF();
-    pdf.setFontSize(16);
-    pdf.text("LectureLens Notes", 12, 16);
-    pdf.setFontSize(11);
-    pdf.text(fullSummary || "Session summary will appear here after ending the session.", 12, 26, { maxWidth: 180 });
-    let y = 46;
-    recaps.forEach((recap) => {
-      pdf.text(`${formatTimestamp(recap.from_timestamp)} - ${formatTimestamp(recap.to_timestamp)}`, 12, y);
-      y += 6;
-      pdf.text(recap.summary, 12, y, { maxWidth: 180 });
-      y += 12;
-    });
-    pdf.save("lecturelens-notes.pdf");
+  function handleExportMarkdown() {
+    exportMarkdownNotes({ session, transcript, recaps, fullSummary });
+  }
+
+  async function handleExportNotion() {
+    if (!sessionId || !notionPageId) {
+      setErrorMessage("Add a Notion Page ID in settings before exporting.");
+      return;
+    }
+    try {
+      await exportToNotion(sessionId, notionPageId, notionApiKey || undefined);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to export to Notion.");
+    }
   }
 
   return (
@@ -154,7 +146,7 @@ function App() {
           <header className="mb-4 rounded-2xl bg-ink px-4 py-4 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-white/70">LectureLens</p>
+                <p className="text-xs uppercase tracking-[0.25em] text-white/70">SnapBack</p>
                 <h1 className="mt-1 text-xl font-semibold">Context Recovery</h1>
               </div>
               <button className="rounded-full bg-white/10 p-2 hover:bg-white/20" onClick={() => setDarkMode((value) => !value)}>
@@ -177,9 +169,9 @@ function App() {
               canEnd={Boolean(sessionId) && !loading}
               onStart={() => void handleStartSession()}
               onEnd={() => void handleEndSession()}
-              onExportPdf={() => void handleExportFile("pdf")}
-              onExportMarkdown={() => void handleExportFile("markdown")}
-              onExportNotes={exportNotesPdfClientSide}
+              onExportPdf={handleExportPdf}
+              onExportMarkdown={handleExportMarkdown}
+              onExportNotion={() => void handleExportNotion()}
             />
 
             <RecapPanel

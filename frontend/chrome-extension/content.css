@@ -1,11 +1,11 @@
-#lecturelens-root {
+#snapback-root {
   position: fixed;
   right: 20px;
   bottom: 20px;
   z-index: 999999;
 }
 
-#lecturelens-pill {
+#snapback-pill {
   border: none;
   border-radius: 999px;
   padding: 12px 18px;
@@ -17,7 +17,7 @@
   cursor: pointer;
 }
 
-#lecturelens-frame {
+#snapback-frame {
   position: fixed;
   top: 0;
   right: 0;

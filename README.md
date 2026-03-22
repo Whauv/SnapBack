@@ -1,11 +1,11 @@
-# LectureLens
+# SnapBack
 
-LectureLens is a Zoom App and Chrome Extension for lecture context recovery. It captures live transcript chunks, stores them locally in SQLite, and generates focused recap summaries for the exact period a student missed.
+SnapBack is a Zoom App and Chrome Extension for lecture context recovery. It captures live transcript chunks, stores them locally in SQLite, and generates focused recap summaries for the exact period a student missed.
 
 ## Structure
 
 ```text
-lecturelens/
+snapback/
 ├── backend/
 │   ├── main.py
 │   ├── transcription_client.py

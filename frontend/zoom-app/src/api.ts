@@ -64,3 +64,14 @@ export async function exportSessionFile(type: "pdf" | "markdown", sessionId: str
   }
   return response.blob();
 }
+
+export async function exportToNotion(sessionId: string, pageId: string, notionApiKey?: string) {
+  return request<{ page_id: string; url: string }>("/export/notion", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      page_id: pageId,
+      notion_api_key: notionApiKey || undefined,
+    }),
+  });
+}
