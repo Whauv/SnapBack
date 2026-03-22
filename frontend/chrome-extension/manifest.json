@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "LectureLens",
+  "name": "SnapBack",
   "version": "0.2.0",
   "description": "Catch up on missed lecture context in Google Meet.",
   "permissions": ["storage", "activeTab", "scripting", "tabCapture", "tabs", "offscreen"],
@@ -10,7 +10,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "LectureLens"
+    "default_title": "SnapBack"
   },
   "content_scripts": [
     {

@@ -1,5 +1,5 @@
 const API_BASE = "http://localhost:8000";
-const STORAGE_KEY = "lecturelensExtensionState";
+const STORAGE_KEY = "snapbackExtensionState";
 const CHUNK_INTERVAL_MS = 4000;
 
 const defaultState = {

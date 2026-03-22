@@ -13,7 +13,7 @@ def build_markdown_export(bundle: dict[str, Any]) -> str:
     recaps = bundle["recaps"]
 
     lines = [
-        f"# LectureLens Session {session['id']}",
+        f"# SnapBack Session {session['id']}",
         "",
         f"- Started: {session['start_timestamp']}",
         f"- Ended: {session.get('end_timestamp') or 'In progress'}",
@@ -61,7 +61,7 @@ def build_pdf_export(bundle: dict[str, Any]) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "LectureLens Notes Export", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "SnapBack Notes Export", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_font("Arial", "", 11)
     for line in [
@@ -166,7 +166,7 @@ def export_to_notion(bundle: dict[str, Any], api_key: str, page_id: str) -> dict
                 "title": [
                     {
                         "type": "text",
-                        "text": {"content": f"LectureLens Session {session['start_timestamp'][:10]}"},
+                        "text": {"content": f"SnapBack Session {session['start_timestamp'][:10]}"},
                     }
                 ]
             }

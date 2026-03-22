@@ -101,7 +101,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="LectureLens API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -235,7 +235,7 @@ def export_pdf(payload: ExportRequest) -> Response:
     pdf_bytes = build_pdf_export(
         {"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps}
     )
-    headers = {"Content-Disposition": f'attachment; filename="lecturelens-{payload.session_id}.pdf"'}
+    headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.pdf"'}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
@@ -247,7 +247,7 @@ def export_markdown(payload: ExportRequest) -> Response:
     markdown = build_markdown_export(
         {"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps}
     )
-    headers = {"Content-Disposition": f'attachment; filename="lecturelens-{payload.session_id}.md"'}
+    headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.md"'}
     return Response(content=markdown, media_type="text/markdown", headers=headers)
 
 

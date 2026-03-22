@@ -61,7 +61,7 @@ class TranscriptionConfig:
         )
 
 
-class LectureLensTranscriptionClient:
+class SnapBackTranscriptionClient:
     def __init__(self, config: TranscriptionConfig) -> None:
         self.config = config
         self._ws: websocket.WebSocketApp | None = None
@@ -236,7 +236,7 @@ class LectureLensTranscriptionClient:
             audio.terminate()
 
     def _transcribe_local_segment(self, frames: list[bytes]) -> None:
-        temp_dir = Path(tempfile.mkdtemp(prefix="lecturelens-whisper-"))
+        temp_dir = Path(tempfile.mkdtemp(prefix="snapback-whisper-"))
         wav_path = temp_dir / "segment.wav"
         txt_path = temp_dir / "segment.wav.txt"
         try:
@@ -289,12 +289,12 @@ class LectureLensTranscriptionClient:
         return result.stdout.strip()
 
 
-_client: LectureLensTranscriptionClient | None = None
+_client: SnapBackTranscriptionClient | None = None
 
 
-def configure_transcription_client(config: TranscriptionConfig) -> LectureLensTranscriptionClient:
+def configure_transcription_client(config: TranscriptionConfig) -> SnapBackTranscriptionClient:
     global _client
-    _client = LectureLensTranscriptionClient(config)
+    _client = SnapBackTranscriptionClient(config)
     return _client
 
 
@@ -314,7 +314,7 @@ def stop_transcription() -> None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="LectureLens live transcription client")
+    parser = argparse.ArgumentParser(description="SnapBack live transcription client")
     parser.add_argument("session_id", help="Session ID returned by POST /session/start")
     parser.add_argument("--mode", choices=["cloud", "local"], default=None, help="Override transcription mode")
     args = parser.parse_args()
@@ -325,7 +325,7 @@ if __name__ == "__main__":
 
     client = configure_transcription_client(config)
     client.start_transcription(args.session_id)
-    print(f"LectureLens transcription started in {config.mode} mode for session {args.session_id}. Press Ctrl+C to stop.")
+    print(f"SnapBack transcription started in {config.mode} mode for session {args.session_id}. Press Ctrl+C to stop.")
     try:
         while True:
             time.sleep(1)
