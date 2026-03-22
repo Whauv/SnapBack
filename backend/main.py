@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -25,6 +26,7 @@ from database import (
     get_transcript,
     get_transcript_window,
     init_db,
+    save_audio_chunk,
     save_recap,
 )
 from detector import detect_missed_alerts, detect_topic_shift
@@ -62,6 +64,15 @@ class SessionEndRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     session_id: str
+
+
+class AudioChunkRequest(BaseModel):
+    session_id: str
+    chunk_index: int
+    mime_type: str
+    audio_base64: str
+    timestamp: str
+    source: str = "extension"
 
 
 class NotionExportRequest(BaseModel):
@@ -118,6 +129,34 @@ def ingest_transcript(payload: TranscriptChunkRequest) -> dict:
         raise HTTPException(status_code=404, detail="Session not found")
     chunk = append_transcript_chunk(payload.session_id, payload.text, payload.timestamp)
     return {"chunk": chunk}
+
+
+@app.post("/session/audio-chunk")
+def ingest_audio_chunk(payload: AudioChunkRequest) -> dict:
+    session = get_session(payload.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        audio_bytes = base64.b64decode(payload.audio_base64)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Invalid audio payload: {error}") from error
+
+    audio_dir = Path(__file__).resolve().parent / "data" / "audio" / payload.session_id
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    extension = "webm" if "webm" in payload.mime_type else "bin"
+    file_path = audio_dir / f"chunk-{payload.chunk_index:06d}.{extension}"
+    file_path.write_bytes(audio_bytes)
+
+    chunk = save_audio_chunk(
+        payload.session_id,
+        chunk_index=payload.chunk_index,
+        mime_type=payload.mime_type,
+        file_path=str(file_path),
+        timestamp=payload.timestamp,
+        source=payload.source,
+    )
+    return {"audio_chunk": chunk}
 
 
 @app.post("/recap")

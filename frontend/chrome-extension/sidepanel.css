@@ -1,7 +1,9 @@
 body {
   margin: 0;
   font-family: "Segoe UI", sans-serif;
-  background: linear-gradient(180deg, #f6fbf8, #edf3f2);
+  background:
+    radial-gradient(circle at top left, rgba(46, 139, 87, 0.16), transparent 35%),
+    linear-gradient(180deg, #f6fbf8, #edf3f2);
   color: #10212f;
 }
 
@@ -9,8 +11,20 @@ body {
   padding: 16px;
 }
 
-header {
+.hero {
   margin-bottom: 16px;
+  padding: 18px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #10212f, #1f3850);
+  color: white;
+  box-shadow: 0 16px 32px rgba(16, 33, 47, 0.18);
+}
+
+.hero-copy {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .eyebrow {
@@ -18,7 +32,7 @@ header {
   font-size: 11px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #5c6f6d;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 h1, h2 {
@@ -28,9 +42,51 @@ h1, h2 {
 .card {
   margin-bottom: 12px;
   padding: 14px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.84);
   box-shadow: 0 10px 20px rgba(16, 33, 47, 0.08);
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.section-label {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #67807b;
+}
+
+.status-text {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pill-muted {
+  background: #dfe8e6;
+  color: #234040;
+}
+
+.pill-amber {
+  background: #f7c66b;
+  color: #10212f;
 }
 
 button {
@@ -51,6 +107,17 @@ button {
 .secondary {
   background: #10212f;
   color: white;
+}
+
+.ghost {
+  background: #ebf2f0;
+  color: #10212f;
+}
+
+.summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .keywords {
@@ -76,4 +143,6 @@ button {
 
 .transcript p {
   margin: 0 0 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(16, 33, 47, 0.08);
 }
