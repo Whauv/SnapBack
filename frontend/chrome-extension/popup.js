@@ -1,4 +1,18 @@
-const API_BASE = "http://localhost:8000";
+const statusNode = document.getElementById("status");
+const captureButton = document.getElementById("toggle-capture");
+
+async function getState() {
+  const response = await chrome.runtime.sendMessage({ type: "GET_EXTENSION_STATE" });
+  return response.state;
+}
+
+function renderState(state) {
+  const session = state.sessionId ? `Session: ${state.sessionId.slice(0, 8)}` : "Session inactive";
+  const capture = `Capture: ${state.captureStatus || "idle"}`;
+  const away = state.departureTimestamp ? `Away since: ${new Date(state.departureTimestamp).toLocaleTimeString()}` : "Present";
+  statusNode.textContent = [session, capture, away].join("\n");
+  captureButton.textContent = state.captureStatus === "capturing" ? "Stop Tab Audio" : "Start Tab Audio";
+}
 
 document.getElementById("open-sidepanel").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -7,17 +21,26 @@ document.getElementById("open-sidepanel").addEventListener("click", async () => 
 });
 
 document.getElementById("quick-recap").addEventListener("click", async () => {
-  const { sessionId, departureTimestamp } = await chrome.storage.local.get(["sessionId", "departureTimestamp"]);
-  if (!sessionId || !departureTimestamp) return;
-  const response = await fetch(`${API_BASE}/recap`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: sessionId,
-      from_timestamp: departureTimestamp,
-      to_timestamp: new Date().toISOString()
-    })
-  });
-  const data = await response.json();
-  document.getElementById("status").textContent = data.summary || "Recap generated";
+  const response = await chrome.runtime.sendMessage({ type: "REQUEST_RECAP" });
+  renderState(response.state);
 });
+
+captureButton.addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+  const state = await getState();
+  if (state.captureStatus === "capturing") {
+    await chrome.runtime.sendMessage({ type: "STOP_TAB_CAPTURE" });
+  } else {
+    await chrome.runtime.sendMessage({ type: "START_TAB_CAPTURE", tabId: tab.id });
+  }
+  renderState(await getState());
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "EXTENSION_STATE") {
+    renderState(message.state);
+  }
+});
+
+void getState().then(renderState);

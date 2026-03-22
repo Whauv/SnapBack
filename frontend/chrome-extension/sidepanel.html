@@ -8,24 +8,50 @@
   </head>
   <body>
     <div id="app">
-      <header>
+      <header class="hero">
         <p class="eyebrow">LectureLens</p>
         <h1>Meet Catch-Up</h1>
+        <p class="hero-copy">Recover the exact lecture context you missed without losing the thread.</p>
       </header>
-      <div class="card">
+
+      <section class="card">
+        <div class="status-row">
+          <div>
+            <p class="section-label">Session</p>
+            <p id="session-status" class="status-text">Inactive</p>
+          </div>
+          <span id="capture-status" class="pill pill-muted">Idle</span>
+        </div>
         <button id="start-session" class="primary">Start Session</button>
+        <button id="start-capture" class="secondary">Start Tab Audio</button>
+        <button id="stop-capture" class="ghost">Stop Tab Audio</button>
+      </section>
+
+      <section class="card">
+        <div class="status-row">
+          <div>
+            <p class="section-label">Absence</p>
+            <p id="absence-status" class="status-text">Present</p>
+          </div>
+          <span id="absence-timer" class="pill pill-amber">00:00:00</span>
+        </div>
         <button id="leave" class="secondary">I'm Leaving</button>
         <button id="catch-up" class="primary">I'm Back - Catch Me Up</button>
-      </div>
-      <div class="card">
-        <h2>Latest Recap</h2>
-        <p id="summary">Waiting for your first recap.</p>
+      </section>
+
+      <section class="card">
+        <div class="status-row">
+          <h2>Latest Recap</h2>
+          <span id="transcript-count" class="pill pill-muted">0 chunks</span>
+        </div>
+        <p id="summary" class="summary">Waiting for your first recap.</p>
         <div id="keywords" class="keywords"></div>
-      </div>
-      <div class="card">
+      </section>
+
+      <section class="card">
         <h2>Transcript</h2>
         <div id="transcript" class="transcript"></div>
-      </div>
+      </section>
     </div>
     <script src="sidepanel.js"></script>
   </body>

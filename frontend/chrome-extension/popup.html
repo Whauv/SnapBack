@@ -13,6 +13,23 @@
         background: linear-gradient(180deg, #f6fbf8, #edf3f2);
         color: #10212f;
       }
+      .hero {
+        padding: 16px;
+        border-radius: 20px;
+        background: linear-gradient(145deg, #10212f, #1f3850);
+        color: white;
+      }
+      .hero p {
+        margin: 6px 0 0;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.76);
+      }
+      .status {
+        margin: 14px 0;
+        font-size: 12px;
+        color: #51606c;
+        line-height: 1.6;
+      }
       button {
         width: 100%;
         margin-top: 8px;
@@ -24,14 +41,18 @@
       }
       .primary { background: #2e8b57; color: white; }
       .secondary { background: #10212f; color: white; }
-      .status { font-size: 12px; color: #51606c; }
+      .ghost { background: #e6efec; color: #10212f; }
     </style>
   </head>
   <body>
-    <h1>LectureLens</h1>
+    <div class="hero">
+      <h1>LectureLens</h1>
+      <p>Google Meet catch-up and tab audio relay</p>
+    </div>
     <p class="status" id="status">Session inactive</p>
     <button class="primary" id="open-sidepanel">Open Meet Panel</button>
     <button class="secondary" id="quick-recap">Quick Catch Me Up</button>
+    <button class="ghost" id="toggle-capture">Start Tab Audio</button>
     <script src="popup.js"></script>
   </body>
 </html>

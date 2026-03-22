@@ -70,6 +70,18 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(id)
             );
+
+            CREATE TABLE IF NOT EXISTS audio_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                mime_type TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'extension',
+                timestamp TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            );
             """
         )
 
@@ -248,6 +260,28 @@ def hydrate_recap(row: dict[str, Any]) -> dict[str, Any]:
     row["topic_shift_detected"] = bool(row["topic_shift_detected"])
     row["missed_alerts"] = json.loads(row.pop("missed_alerts_json", "[]"))
     return row
+
+
+def save_audio_chunk(
+    session_id: str,
+    chunk_index: int,
+    mime_type: str,
+    file_path: str,
+    timestamp: str,
+    source: str = "extension",
+) -> dict[str, Any]:
+    created_at = utc_now_iso()
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO audio_chunks (session_id, chunk_index, mime_type, file_path, source, timestamp, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, chunk_index, mime_type, file_path, source, timestamp, created_at),
+        )
+        chunk_id = cursor.lastrowid
+        row = connection.execute("SELECT * FROM audio_chunks WHERE id = ?", (chunk_id,)).fetchone()
+    return dict(row)
 
 
 def delete_sessions_older_than(hours: int) -> int:
