@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -39,8 +40,12 @@ class TranscriptionConfig:
     assemblyai_api_key: str | None = None
     whisper_binary_path: str = "whisper-cli"
     whisper_model_path: str = "models/ggml-base.en.bin"
+    whisper_model_url: str = DEFAULT_WHISPER_MODEL_URL
+    whisper_language: str = "en"
+    whisper_threads: int = 4
     mode: str = "cloud"
     microphone_device_index: int | None = None
+    local_segment_seconds: int = LOCAL_SEGMENT_SECONDS
     reconnect_backoff_seconds: float = 2.0
     max_reconnect_backoff_seconds: float = 15.0
     request_timeout_seconds: float = 15.0
@@ -54,10 +59,14 @@ class TranscriptionConfig:
             assemblyai_api_key=os.getenv("ASSEMBLYAI_API_KEY"),
             whisper_binary_path=os.getenv("WHISPER_BINARY_PATH", "whisper-cli"),
             whisper_model_path=os.getenv("WHISPER_MODEL_PATH", "models/ggml-base.en.bin"),
+            whisper_model_url=os.getenv("WHISPER_MODEL_URL", DEFAULT_WHISPER_MODEL_URL),
+            whisper_language=os.getenv("WHISPER_LANGUAGE", "en"),
+            whisper_threads=max(1, int(os.getenv("WHISPER_THREADS", "4"))),
             mode=os.getenv("TRANSCRIPTION_MODE", "cloud").lower(),
             microphone_device_index=(
                 int(os.getenv("MICROPHONE_DEVICE_INDEX", "")) if os.getenv("MICROPHONE_DEVICE_INDEX") else None
             ),
+            local_segment_seconds=max(5, int(os.getenv("LOCAL_SEGMENT_SECONDS", str(LOCAL_SEGMENT_SECONDS)))),
         )
 
 
@@ -82,6 +91,7 @@ class SnapBackTranscriptionClient:
             self._connected_event.clear()
 
         if self.config.mode == "local":
+            self._ensure_whisper_binary()
             self._ensure_whisper_model()
             self._local_thread = threading.Thread(target=self._run_local_whisper_loop, daemon=True)
             self._local_thread.start()
@@ -226,7 +236,7 @@ class SnapBackTranscriptionClient:
             while not self._stop_event.is_set():
                 frames: list[bytes] = []
                 started_at = time.monotonic()
-                while time.monotonic() - started_at < LOCAL_SEGMENT_SECONDS and not self._stop_event.is_set():
+                while time.monotonic() - started_at < self.config.local_segment_seconds and not self._stop_event.is_set():
                     frames.append(stream.read(FRAMES_PER_BUFFER, exception_on_overflow=False))
                 if frames:
                     self._transcribe_local_segment(frames)
@@ -259,14 +269,25 @@ class SnapBackTranscriptionClient:
             handle.setframerate(SAMPLE_RATE)
             handle.writeframes(b"".join(frames))
 
+    def _ensure_whisper_binary(self) -> None:
+        binary_path = self.config.whisper_binary_path
+        if Path(binary_path).exists() or shutil.which(binary_path):
+            return
+        raise RuntimeError(
+            "whisper.cpp binary was not found. Set WHISPER_BINARY_PATH to whisper-cli or the full executable path."
+        )
+
     def _ensure_whisper_model(self) -> None:
         model_path = Path(self.config.whisper_model_path)
         if model_path.exists():
             return
         model_path.parent.mkdir(parents=True, exist_ok=True)
-        response = self._requests.get(DEFAULT_WHISPER_MODEL_URL, timeout=120)
-        response.raise_for_status()
-        model_path.write_bytes(response.content)
+        with self._requests.get(self.config.whisper_model_url, timeout=120, stream=True) as response:
+            response.raise_for_status()
+            with model_path.open("wb") as handle:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        handle.write(chunk)
 
     def _transcribe_with_whisper(self, wav_path: Path, txt_path: Path) -> str:
         command = [
@@ -275,6 +296,10 @@ class SnapBackTranscriptionClient:
             self.config.whisper_model_path,
             "-f",
             str(wav_path),
+            "-l",
+            self.config.whisper_language,
+            "-t",
+            str(self.config.whisper_threads),
             "-nt",
             "-otxt",
             "-of",

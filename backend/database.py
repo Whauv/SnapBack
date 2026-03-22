@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -289,16 +290,28 @@ def delete_sessions_older_than(hours: int) -> int:
     cutoff_iso = cutoff.isoformat()
     with get_connection() as connection:
         session_rows = connection.execute(
-            "SELECT id FROM sessions WHERE created_at < ?",
+            """
+            SELECT sessions.id AS id, audio_chunks.file_path AS file_path
+            FROM sessions
+            LEFT JOIN audio_chunks ON audio_chunks.session_id = sessions.id
+            WHERE sessions.created_at < ?
+            """,
             (cutoff_iso,),
         ).fetchall()
-        session_ids = [row["id"] for row in session_rows]
+        session_ids = sorted({row["id"] for row in session_rows})
         if not session_ids:
             return 0
+        audio_paths = [Path(row["file_path"]) for row in session_rows if row["file_path"]]
         placeholders = ",".join(["?"] * len(session_ids))
         connection.execute(f"DELETE FROM transcript_chunks WHERE session_id IN ({placeholders})", session_ids)
         connection.execute(f"DELETE FROM recaps WHERE session_id IN ({placeholders})", session_ids)
+        connection.execute(f"DELETE FROM audio_chunks WHERE session_id IN ({placeholders})", session_ids)
         connection.execute(f"DELETE FROM sessions WHERE id IN ({placeholders})", session_ids)
+    for audio_path in audio_paths:
+        audio_path.unlink(missing_ok=True)
+        parent = audio_path.parent
+        if parent.name:
+            shutil.rmtree(parent, ignore_errors=True)
     return len(session_ids)
 
 

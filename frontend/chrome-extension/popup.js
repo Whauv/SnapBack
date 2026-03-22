@@ -17,7 +17,7 @@ function renderState(state) {
 document.getElementById("open-sidepanel").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
-  await chrome.tabs.sendMessage(tab.id, { type: "OPEN_LECTURELENS_PANEL" });
+  await chrome.tabs.sendMessage(tab.id, { type: "OPEN_SNAPBACK_PANEL" });
 });
 
 document.getElementById("quick-recap").addEventListener("click", async () => {

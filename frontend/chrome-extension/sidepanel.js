@@ -8,9 +8,12 @@ const summaryNode = document.getElementById("summary");
 const keywordsNode = document.getElementById("keywords");
 const transcriptNode = document.getElementById("transcript");
 const transcriptCountNode = document.getElementById("transcript-count");
+const consentModalNode = document.getElementById("consent-modal");
+const consentCopyNode = document.getElementById("consent-copy");
 
 let extensionState = null;
 let timerInterval = null;
+let pendingSessionStart = false;
 
 function formatDuration(totalSeconds) {
   const hours = Math.floor(totalSeconds / 3600);
@@ -60,6 +63,18 @@ function renderState() {
   }
 }
 
+function openConsentModal() {
+  const modeLabel = "AssemblyAI tab audio capture";
+  consentCopyNode.textContent =
+    `Audio for this lecture will be processed via ${modeLabel}. No lecture data is shared without your consent.`;
+  consentModalNode.classList.remove("hidden");
+}
+
+function closeConsentModal() {
+  pendingSessionStart = false;
+  consentModalNode.classList.add("hidden");
+}
+
 async function syncState() {
   const response = await chrome.runtime.sendMessage({ type: "GET_EXTENSION_STATE" });
   extensionState = response.state;
@@ -68,10 +83,25 @@ async function syncState() {
 }
 
 document.getElementById("start-session").addEventListener("click", async () => {
+  pendingSessionStart = true;
+  openConsentModal();
+});
+
+document.getElementById("consent-cancel").addEventListener("click", () => {
+  closeConsentModal();
+});
+
+document.getElementById("consent-accept").addEventListener("click", async () => {
+  if (!pendingSessionStart) {
+    consentModalNode.classList.add("hidden");
+    return;
+  }
   const response = await chrome.runtime.sendMessage({
     type: "START_SESSION",
     payload: { mode: "cloud", language: "English", recap_length: "standard" },
   });
+  pendingSessionStart = false;
+  consentModalNode.classList.add("hidden");
   extensionState = response.state;
   renderState();
   await refreshTranscript();

@@ -33,6 +33,16 @@ async function broadcastState() {
   chrome.runtime.sendMessage({ type: "EXTENSION_STATE", state }).catch(() => {});
 }
 
+async function getActiveMeetTab() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true, url: ["https://meet.google.com/*"] });
+  return tabs[0] || null;
+}
+
+async function openSnapBackPanel(tabId) {
+  if (!tabId) return;
+  await chrome.tabs.sendMessage(tabId, { type: "OPEN_SNAPBACK_PANEL" }).catch(() => {});
+}
+
 async function ensureSessionTranscriptCount() {
   if (!state.sessionId) return;
   try {
@@ -248,6 +258,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (message.type === "OPEN_LECTURELENS_PANEL") {
+        const tabId = sender.tab?.id || message.tabId;
+        await openSnapBackPanel(tabId);
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (message.type === "OPEN_SNAPBACK_PANEL") {
         sendResponse({ ok: true });
         return;
       }
@@ -264,7 +281,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === "catch-me-up") {
+  void (async () => {
+    if (command !== "catch-me-up") return;
+    const activeMeetTab = await getActiveMeetTab();
+    if (activeMeetTab?.id) {
+      await openSnapBackPanel(activeMeetTab.id);
+    }
+
+    if (state.sessionId && state.departureTimestamp) {
+      try {
+        await requestRecap();
+      } catch (error) {
+        state.lastError = error instanceof Error ? error.message : String(error);
+        await broadcastState();
+      }
+      return;
+    }
+
     chrome.runtime.sendMessage({ type: "HOTKEY_CATCH_ME_UP" }).catch(() => {});
-  }
+  })();
 });

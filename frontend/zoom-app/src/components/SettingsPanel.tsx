@@ -67,6 +67,10 @@ function SettingsPanel(props: SettingsPanelProps) {
         </label>
         <input value={notionApiKey} onChange={(event) => onNotionApiKeyChange(event.target.value)} placeholder="Notion API key" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" />
         <input value={notionPageId} onChange={(event) => onNotionPageIdChange(event.target.value)} placeholder="Notion page ID" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" />
+        <p className="text-xs leading-5 text-ink/60 dark:text-slate-400">
+          Cloud mode streams audio through AssemblyAI. Local mode uses whisper.cpp on-device. Session data is cleaned up
+          automatically based on your backend retention window.
+        </p>
       </div>
     </section>
   );

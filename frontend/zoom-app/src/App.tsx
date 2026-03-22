@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Moon } from "lucide-react";
 import { createRecap, endSession, exportToNotion, getSessionTranscript, startSession } from "./api";
 import ConsentBanner from "./components/ConsentBanner";
@@ -13,6 +13,7 @@ import type { Mode, Recap, RecapLength, SessionRecord, TranscriptChunk } from ".
 import { formatTimestamp } from "./utils";
 
 function App() {
+  const settingsStorageKey = "snapback.zoom.settings";
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [transcript, setTranscript] = useState<TranscriptChunk[]>([]);
@@ -28,15 +29,52 @@ function App() {
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
+  const pendingStartRef = useRef(false);
 
   const absenceSeconds = useMemo(() => {
     if (!departureTimestamp) return 0;
     return Math.max(0, Math.floor((nowMs - new Date(departureTimestamp).getTime()) / 1000));
   }, [departureTimestamp, nowMs]);
+
+  useEffect(() => {
+    const savedSettings = window.localStorage.getItem(settingsStorageKey);
+    if (!savedSettings) return;
+    try {
+      const parsed = JSON.parse(savedSettings) as Partial<{
+        mode: Mode;
+        recapLength: RecapLength;
+        language: string;
+        notionApiKey: string;
+        notionPageId: string;
+        darkMode: boolean;
+      }>;
+      if (parsed.mode) setMode(parsed.mode);
+      if (parsed.recapLength) setRecapLength(parsed.recapLength);
+      if (parsed.language) setLanguage(parsed.language);
+      if (parsed.notionApiKey) setNotionApiKey(parsed.notionApiKey);
+      if (parsed.notionPageId) setNotionPageId(parsed.notionPageId);
+      if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
+    } catch {
+      window.localStorage.removeItem(settingsStorageKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      settingsStorageKey,
+      JSON.stringify({ mode, recapLength, language, notionApiKey, notionPageId, darkMode }),
+    );
+  }, [darkMode, language, mode, notionApiKey, notionPageId, recapLength]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    document.body.classList.toggle("dark", darkMode);
+  }, [darkMode]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -62,8 +100,7 @@ function App() {
     setLatestSummary((current) => current ?? data.recaps[data.recaps.length - 1] ?? null);
   }
 
-  async function handleStartSession() {
-    if (!consentAccepted) return;
+  async function startSessionFlow() {
     setLoading(true);
     setErrorMessage(null);
     try {
@@ -75,11 +112,31 @@ function App() {
       setLatestSummary(null);
       setFullSummary("");
       setDepartureTimestamp(null);
+      setConsentAccepted(false);
+      setConsentOpen(false);
       setShowSummaryModal(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to start session.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleStartSession() {
+    if (!consentAccepted) {
+      pendingStartRef.current = true;
+      setConsentOpen(true);
+      return;
+    }
+    await startSessionFlow();
+  }
+
+  async function handleConsentAccept() {
+    setConsentAccepted(true);
+    setConsentOpen(false);
+    if (pendingStartRef.current) {
+      pendingStartRef.current = false;
+      await startSessionFlow();
     }
   }
 
@@ -140,6 +197,16 @@ function App() {
 
   return (
     <div className={darkMode ? "dark" : ""}>
+      <ConsentBanner
+        mode={mode}
+        open={consentOpen}
+        accepted={consentAccepted}
+        onAccept={() => void handleConsentAccept()}
+        onClose={() => {
+          pendingStartRef.current = false;
+          setConsentOpen(false);
+        }}
+      />
       <FullSummaryModal open={showSummaryModal} summary={fullSummary} onClose={() => setShowSummaryModal(false)} />
       <div className="mx-auto flex min-h-screen w-panel overflow-hidden bg-white/85 text-ink shadow-soft dark:bg-slate-900 dark:text-slate-100">
         <main className="flex-1 p-4">
@@ -155,8 +222,6 @@ function App() {
             </div>
           </header>
 
-          <ConsentBanner mode={mode} accepted={consentAccepted} onAccept={() => setConsentAccepted(true)} />
-
           {errorMessage ? (
             <section className="mt-4 rounded-[22px] border border-danger/25 bg-danger/10 px-4 py-3 text-sm text-danger">
               {errorMessage}
@@ -165,7 +230,7 @@ function App() {
 
           <div className="mt-4 space-y-4">
             <SessionControls
-              canStart={consentAccepted && !loading}
+              canStart={!sessionId && !loading}
               canEnd={Boolean(sessionId) && !loading}
               onStart={() => void handleStartSession()}
               onEnd={() => void handleEndSession()}
