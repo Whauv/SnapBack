@@ -59,6 +59,7 @@ function App() {
     setSession(data.session);
     setTranscript(data.transcript);
     setRecaps(data.recaps);
+    setLatestSummary((current) => current ?? data.recaps.at(-1) ?? null);
   }
 
   async function handleStartSession() {

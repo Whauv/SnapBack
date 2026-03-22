@@ -136,9 +136,10 @@ def generate_recap(payload: RecapRequest) -> dict:
     keywords = summarizer.extract_keywords(transcript_text)
     previous_chunk = get_last_chunk_before(payload.session_id, payload.from_timestamp)
     current_chunk = get_first_chunk_after(payload.session_id, payload.to_timestamp)
+    comparison_chunk = current_chunk or (chunks[-1] if chunks else None) or (chunks[0] if chunks else None)
     topic_shift_detected = detect_topic_shift(
         previous_chunk["text"] if previous_chunk else None,
-        current_chunk["text"] if current_chunk else None,
+        comparison_chunk["text"] if comparison_chunk else None,
     )
     missed_alerts = detect_missed_alerts(chunks)
     recap = save_recap(
@@ -155,6 +156,10 @@ def generate_recap(payload: RecapRequest) -> dict:
         "keywords": keywords,
         "topic_shift_detected": topic_shift_detected,
         "missed_alerts": missed_alerts,
+        "topic_shift_reference": {
+            "before_departure": previous_chunk["timestamp"] if previous_chunk else None,
+            "comparison_chunk": comparison_chunk["timestamp"] if comparison_chunk else None,
+        },
         "recap": recap,
     }
 

@@ -16,13 +16,24 @@ ALERT_PHRASES = [
 ]
 
 
+def _normalize_text(text: str | None) -> str:
+    if not text:
+        return ""
+    return " ".join(text.split()).strip().lower()
+
+
 def detect_topic_shift(previous_text: str | None, current_text: str | None, threshold: float = 0.2) -> bool:
-    if not previous_text or not current_text:
+    previous = _normalize_text(previous_text)
+    current = _normalize_text(current_text)
+    if not previous or not current or previous == current:
         return False
-    vectorizer = TfidfVectorizer(stop_words="english")
-    matrix = vectorizer.fit_transform([previous_text, current_text])
-    similarity = cosine_similarity(matrix[0:1], matrix[1:2])[0][0]
-    return similarity < threshold
+    try:
+        vectorizer = TfidfVectorizer(stop_words="english")
+        matrix = vectorizer.fit_transform([previous, current])
+        similarity = cosine_similarity(matrix[0:1], matrix[1:2])[0][0]
+        return similarity < threshold
+    except ValueError:
+        return False
 
 
 def detect_missed_alerts(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:

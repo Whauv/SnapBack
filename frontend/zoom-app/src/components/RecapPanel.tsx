@@ -34,14 +34,18 @@ function RecapPanel({ canLeave, canCatchUp, absenceSeconds, latestRecap, onLeave
         <div className="mt-4 rounded-[22px] bg-mist p-4 dark:bg-slate-800">
           {latestRecap.topic_shift_detected ? (
             <div className="mb-3 rounded-2xl bg-amber/85 px-3 py-2 text-xs font-semibold text-ink">
-              Topic changed while you were away
+              ⚠ Topic changed while you were away
             </div>
           ) : null}
-          {latestRecap.missed_alerts.map((alert) => (
-            <div key={`${alert.timestamp}-${alert.text}`} className="mb-2 rounded-2xl bg-danger px-3 py-2 text-xs font-semibold text-white">
-              Important moment missed at {formatTimestamp(alert.timestamp)}: {alert.text}
+          {latestRecap.missed_alerts.length ? (
+            <div className="mb-3 space-y-2">
+              {latestRecap.missed_alerts.map((alert) => (
+                <div key={`${alert.timestamp}-${alert.text}`} className="rounded-2xl bg-danger px-3 py-2 text-xs font-semibold text-white">
+                  Professor alert at {formatTimestamp(alert.timestamp)}: {alert.text}
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
           <p className="text-[11px] uppercase tracking-[0.2em] text-ink/50 dark:text-slate-400">
             {formatTimestamp(latestRecap.from_timestamp)} - {formatTimestamp(latestRecap.to_timestamp)}
           </p>
