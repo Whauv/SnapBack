@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
+    <div id="consent-modal" class="consent-modal hidden">
+      <div class="consent-card">
+        <p class="eyebrow">Consent Required</p>
+        <h2>SnapBack is ready to transcribe</h2>
+        <p id="consent-copy">
+          Audio for this lecture will be processed to generate recap summaries. No lecture data is shared without your
+          consent.
+        </p>
+        <div class="consent-actions">
+          <button id="consent-cancel" class="ghost">Cancel</button>
+          <button id="consent-accept" class="primary">I Understand</button>
+        </div>
+      </div>
+    </div>
     <div id="app">
       <header class="hero">
         <p class="eyebrow">SnapBack</p>

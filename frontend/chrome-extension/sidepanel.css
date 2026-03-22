@@ -7,6 +7,50 @@ body {
   color: #10212f;
 }
 
+.hidden {
+  display: none;
+}
+
+.consent-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(16, 33, 47, 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.consent-card {
+  width: min(100%, 280px);
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 56px rgba(16, 33, 47, 0.2);
+}
+
+.consent-card h2 {
+  margin-top: 8px;
+  font-size: 20px;
+}
+
+.consent-card p:last-of-type {
+  line-height: 1.65;
+}
+
+.consent-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.consent-actions button {
+  margin-top: 0;
+  flex: 1;
+}
+
 #app {
   padding: 16px;
 }

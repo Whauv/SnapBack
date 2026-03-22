@@ -32,7 +32,7 @@
   document.body.appendChild(root);
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === "OPEN_LECTURELENS_PANEL") {
+    if (message.type === "OPEN_SNAPBACK_PANEL" || message.type === "OPEN_LECTURELENS_PANEL") {
       togglePanel(true);
     }
     if (message.type === "HOTKEY_CATCH_ME_UP") {
