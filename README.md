@@ -27,6 +27,13 @@ lecturelens/
 2. Update `backend/.env` with your AssemblyAI, Groq, and Notion keys.
 3. Start the API with `uvicorn main:app --reload --port 8000` from `backend/`.
 
+### Phase 2 Transcription Client
+
+1. Start a session with `POST /session/start` and copy the returned `session_id`.
+2. Run `python transcription_client.py <session_id>` from `backend/` for cloud mode.
+3. Run `python transcription_client.py <session_id> --mode local` for local `whisper.cpp` mode.
+4. Optionally set `MICROPHONE_DEVICE_INDEX` in `backend/.env` if your default input device is not the right microphone.
+
 ## Frontend Setup
 
 ### Zoom App Panel
@@ -47,6 +54,6 @@ lecturelens/
 - Groq recap and keyword generation with fallback summaries
 - Topic-shift and missed-alert detection
 - PDF, Markdown, and Notion export endpoints
-- AssemblyAI streaming and local `whisper.cpp` transcription client scaffolds
+- AssemblyAI streaming and local `whisper.cpp` transcription client with reconnect and CLI startup flow
 - Zoom-style React side panel with consent banner, absence timer, recap history, transcript drawer, dark mode, and export actions
 - Manifest V3 Chrome Extension with Meet pill launcher, side panel, popup, and hotkey hook
