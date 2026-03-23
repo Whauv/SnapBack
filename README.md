@@ -17,6 +17,9 @@ snapback/
 |   `-- data/
 |-- frontend/
 |   |-- zoom-app/
+|   |   |-- src/core/
+|   |   |-- src/hosts/
+|   |   `-- src/components/
 |   `-- chrome-extension/
 `-- README.md
 ```
@@ -47,6 +50,7 @@ snapback/
 
 1. Run `npm install` in `frontend/zoom-app/`.
 2. Run `npm run dev`.
+3. The current React app is now structured as a shared SnapBack panel plus host adapters. Today it ships with a browser-backed Zoom-style wrapper and scaffolding for Google Meet, Zoom, and Teams hosts.
 
 ### Chrome Extension
 
@@ -65,3 +69,4 @@ snapback/
 - Zoom-style React side panel with consent modal, absence timer, recap history, transcript drawer, persisted dark mode, and export actions
 - Manifest V3 Chrome Extension with Meet pill launcher, consent-gated side panel, popup, and `Ctrl+Shift+L` catch-up hotkey
 - Auto-delete cleanup for expired sessions and saved audio artifacts
+- Shared frontend host-adapter structure for browser, Google Meet extension, Zoom app, and Teams app wrappers
