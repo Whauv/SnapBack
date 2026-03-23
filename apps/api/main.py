@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from database import (
+from services.storage.database import (
     append_transcript_chunk,
     create_session,
     delete_sessions_older_than,
@@ -29,12 +29,12 @@ from database import (
     save_audio_chunk,
     save_recap,
 )
-from detector import detect_missed_alerts, detect_topic_shift
-from export import build_markdown_export, build_pdf_export, export_to_notion
-from summarizer import GroqSummarizer
+from services.analysis.detector import detect_missed_alerts, detect_topic_shift
+from services.analysis.summarizer import GroqSummarizer
+from services.exporters.export import build_markdown_export, build_pdf_export, export_to_notion
 
-
-load_dotenv(Path(__file__).resolve().parent / ".env")
+ROOT_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT_DIR / "config" / "env" / ".env")
 
 AUTO_DELETE_AFTER_HOURS = int(os.getenv("AUTO_DELETE_AFTER_HOURS", "24"))
 NOTION_API_KEY = os.getenv("NOTION_API_KEY", "")
@@ -142,7 +142,7 @@ def ingest_audio_chunk(payload: AudioChunkRequest) -> dict:
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"Invalid audio payload: {error}") from error
 
-    audio_dir = Path(__file__).resolve().parent / "data" / "audio" / payload.session_id
+    audio_dir = ROOT_DIR / "data" / "audio" / payload.session_id
     audio_dir.mkdir(parents=True, exist_ok=True)
     extension = "webm" if "webm" in payload.mime_type else "bin"
     file_path = audio_dir / f"chunk-{payload.chunk_index:06d}.{extension}"
