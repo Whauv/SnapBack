@@ -307,7 +307,7 @@ class GroqSummarizer:
             for keyword in keywords[:3]
         ]
         review_priorities = [keyword.title() for keyword in keywords[:3]] or [
-            "Review the lecture summary carefully."
+            "Review the lecture summary carefully.",
         ]
         return {
             "outline": outline[:5],

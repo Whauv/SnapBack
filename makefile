@@ -1,7 +1,11 @@
 .PHONY: lint format build-zoom clean
 
 lint:
-	ruff check .
+	ruff check --select ALL --ignore D203,D213,COM812 .
+	ruff check --select D203 .
+	ruff check --select D211 .
+	ruff check --select D212 .
+	ruff check --select D213 .
 
 format:
 	ruff format .
