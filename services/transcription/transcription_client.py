@@ -20,6 +20,8 @@ import websocket
 from dotenv import load_dotenv
 
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
 CHUNK_MS = 100
 SAMPLE_RATE = 16000
 CHANNELS = 1
@@ -39,7 +41,7 @@ class TranscriptionConfig:
     backend_base_url: str
     assemblyai_api_key: str | None = None
     whisper_binary_path: str = "whisper-cli"
-    whisper_model_path: str = "models/ggml-base.en.bin"
+    whisper_model_path: str = str(ROOT_DIR / "models" / "ggml-base.en.bin")
     whisper_model_url: str = DEFAULT_WHISPER_MODEL_URL
     whisper_language: str = "en"
     whisper_threads: int = 4
@@ -52,13 +54,13 @@ class TranscriptionConfig:
 
     @classmethod
     def from_env(cls) -> "TranscriptionConfig":
-        load_dotenv(Path(__file__).resolve().parent / ".env")
+        load_dotenv(ROOT_DIR / "config" / "env" / ".env")
         backend_port = os.getenv("BACKEND_PORT", "8000")
         return cls(
             backend_base_url=os.getenv("BACKEND_BASE_URL", f"http://localhost:{backend_port}"),
             assemblyai_api_key=os.getenv("ASSEMBLYAI_API_KEY"),
             whisper_binary_path=os.getenv("WHISPER_BINARY_PATH", "whisper-cli"),
-            whisper_model_path=os.getenv("WHISPER_MODEL_PATH", "models/ggml-base.en.bin"),
+            whisper_model_path=os.getenv("WHISPER_MODEL_PATH", str(ROOT_DIR / "models" / "ggml-base.en.bin")),
             whisper_model_url=os.getenv("WHISPER_MODEL_URL", DEFAULT_WHISPER_MODEL_URL),
             whisper_language=os.getenv("WHISPER_LANGUAGE", "en"),
             whisper_threads=max(1, int(os.getenv("WHISPER_THREADS", "4"))),

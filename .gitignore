@@ -1,6 +1,7 @@
-.env
+config/env/.env
+apps/api/.venv/
 __pycache__/
 *.pyc
-backend/data/*.db
-frontend/zoom-app/node_modules/
-frontend/zoom-app/dist/
+data/
+apps/zoom-app/node_modules/
+apps/zoom-app/dist/

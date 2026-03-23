@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Generator
 
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "snapback.db"
+ROOT_DIR = Path(__file__).resolve().parents[2]
+DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 
 def utc_now_iso() -> str:
