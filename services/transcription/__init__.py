@@ -1,1 +1,1 @@
-
+"""Transcription service for SnapBack."""
