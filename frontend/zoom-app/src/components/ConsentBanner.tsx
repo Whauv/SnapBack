@@ -1,14 +1,12 @@
-import type { Mode } from "../types";
-
 type ConsentBannerProps = {
-  mode: Mode;
+  providerLabel: string;
   open: boolean;
   accepted: boolean;
   onAccept: () => void;
   onClose: () => void;
 };
 
-function ConsentBanner({ mode, open, accepted, onAccept, onClose }: ConsentBannerProps) {
+function ConsentBanner({ providerLabel, open, accepted, onAccept, onClose }: ConsentBannerProps) {
   if (accepted || !open) return null;
 
   return (
@@ -17,8 +15,7 @@ function ConsentBanner({ mode, open, accepted, onAccept, onClose }: ConsentBanne
         <p className="text-xs uppercase tracking-[0.24em] text-ink/55 dark:text-slate-400">Consent Required</p>
         <h2 className="mt-2 text-lg font-semibold">SnapBack is ready to transcribe</h2>
         <p className="mt-3 leading-6 text-ink/80 dark:text-slate-300">
-          Audio for this lecture will be processed via {mode === "cloud" ? "AssemblyAI" : "Local Whisper"}. No
-          lecture data is shared without your consent.
+          Audio for this lecture will be processed via {providerLabel}. No lecture data is shared without your consent.
         </p>
         <div className="mt-4 flex gap-2">
           <button
