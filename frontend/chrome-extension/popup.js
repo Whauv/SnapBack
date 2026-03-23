@@ -1,10 +1,8 @@
+import { createMeetExtensionHostAdapter } from "./host-adapter.js";
+
 const statusNode = document.getElementById("status");
 const captureButton = document.getElementById("toggle-capture");
-
-async function getState() {
-  const response = await chrome.runtime.sendMessage({ type: "GET_EXTENSION_STATE" });
-  return response.state;
-}
+const host = createMeetExtensionHostAdapter();
 
 function renderState(state) {
   const session = state.sessionId ? `Session: ${state.sessionId.slice(0, 8)}` : "Session inactive";
@@ -15,32 +13,28 @@ function renderState(state) {
 }
 
 document.getElementById("open-sidepanel").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-  await chrome.tabs.sendMessage(tab.id, { type: "OPEN_SNAPBACK_PANEL" });
+  await host.openPanel();
 });
 
 document.getElementById("quick-recap").addEventListener("click", async () => {
-  const response = await chrome.runtime.sendMessage({ type: "REQUEST_RECAP" });
-  renderState(response.state);
+  const state = await host.requestRecap();
+  renderState(state);
 });
 
 captureButton.addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-  const state = await getState();
+  const state = await host.getState();
   if (state.captureStatus === "capturing") {
-    await chrome.runtime.sendMessage({ type: "STOP_TAB_CAPTURE" });
+    await host.stopCapture();
   } else {
-    await chrome.runtime.sendMessage({ type: "START_TAB_CAPTURE", tabId: tab.id });
+    await host.startCapture();
   }
-  renderState(await getState());
+  renderState(await host.getState());
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+host.subscribe((message) => {
   if (message.type === "EXTENSION_STATE") {
     renderState(message.state);
   }
 });
 
-void getState().then(renderState);
+void host.getState().then(renderState);

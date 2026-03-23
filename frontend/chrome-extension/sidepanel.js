@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+import { createMeetExtensionHostAdapter } from "./host-adapter.js";
 
 const sessionStatusNode = document.getElementById("session-status");
 const captureStatusNode = document.getElementById("capture-status");
@@ -10,6 +10,8 @@ const transcriptNode = document.getElementById("transcript");
 const transcriptCountNode = document.getElementById("transcript-count");
 const consentModalNode = document.getElementById("consent-modal");
 const consentCopyNode = document.getElementById("consent-copy");
+
+const host = createMeetExtensionHostAdapter();
 
 let extensionState = null;
 let timerInterval = null;
@@ -33,8 +35,7 @@ async function refreshTranscript() {
     return;
   }
 
-  const response = await fetch(`${API_BASE}/session/${extensionState.sessionId}/transcript`);
-  const data = await response.json();
+  const data = await host.getTranscript(extensionState.sessionId);
   transcriptCountNode.textContent = `${data.transcript.length} chunks`;
   transcriptNode.innerHTML = data.transcript
     .map((entry) => `<p><strong>${formatTime(entry.timestamp)}</strong><br/>${entry.text}</p>`)
@@ -64,9 +65,8 @@ function renderState() {
 }
 
 function openConsentModal() {
-  const modeLabel = "AssemblyAI tab audio capture";
   consentCopyNode.textContent =
-    `Audio for this lecture will be processed via ${modeLabel}. No lecture data is shared without your consent.`;
+    `Audio for this lecture will be processed via ${host.getConsentProviderLabel()}. No lecture data is shared without your consent.`;
   consentModalNode.classList.remove("hidden");
 }
 
@@ -76,8 +76,7 @@ function closeConsentModal() {
 }
 
 async function syncState() {
-  const response = await chrome.runtime.sendMessage({ type: "GET_EXTENSION_STATE" });
-  extensionState = response.state;
+  extensionState = await host.getState();
   renderState();
   await refreshTranscript();
 }
@@ -96,37 +95,30 @@ document.getElementById("consent-accept").addEventListener("click", async () => 
     consentModalNode.classList.add("hidden");
     return;
   }
-  const response = await chrome.runtime.sendMessage({
-    type: "START_SESSION",
-    payload: { mode: "cloud", language: "English", recap_length: "standard" },
-  });
+  extensionState = await host.startSession({ mode: "cloud", language: "English", recap_length: "standard" });
   pendingSessionStart = false;
   consentModalNode.classList.add("hidden");
-  extensionState = response.state;
   renderState();
   await refreshTranscript();
 });
 
 document.getElementById("start-capture").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-  await chrome.runtime.sendMessage({ type: "START_TAB_CAPTURE", tabId: tab.id });
+  await host.startCapture();
   await syncState();
 });
 
 document.getElementById("stop-capture").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "STOP_TAB_CAPTURE" });
+  await host.stopCapture();
   await syncState();
 });
 
 document.getElementById("leave").addEventListener("click", async () => {
-  await chrome.runtime.sendMessage({ type: "SET_DEPARTURE" });
-  await syncState();
+  extensionState = await host.setDeparture();
+  renderState();
 });
 
 document.getElementById("catch-up").addEventListener("click", async () => {
-  const response = await chrome.runtime.sendMessage({ type: "REQUEST_RECAP" });
-  extensionState = response.state;
+  extensionState = await host.requestRecap();
   renderState();
   await refreshTranscript();
 });
@@ -137,7 +129,7 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+host.subscribe((message) => {
   if (message.type === "EXTENSION_STATE") {
     extensionState = message.state;
     renderState();

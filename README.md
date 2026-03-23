@@ -70,3 +70,4 @@ snapback/
 - Manifest V3 Chrome Extension with Meet pill launcher, consent-gated side panel, popup, and `Ctrl+Shift+L` catch-up hotkey
 - Auto-delete cleanup for expired sessions and saved audio artifacts
 - Shared frontend host-adapter structure for browser, Google Meet extension, Zoom app, and Teams app wrappers
+- Google Meet extension popup and side panel now consume a shared Meet host adapter instead of directly wiring runtime calls in each file
