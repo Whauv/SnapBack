@@ -38,3 +38,21 @@ export type SessionTranscriptResponse = {
   transcript: TranscriptChunk[];
   recaps: Recap[];
 };
+
+export type Flashcard = {
+  question: string;
+  answer: string;
+};
+
+export type QuizQuestion = {
+  question: string;
+  answer: string;
+  explanation: string;
+};
+
+export type StudyPack = {
+  outline: string[];
+  flashcards: Flashcard[];
+  quiz_questions: QuizQuestion[];
+  review_priorities: string[];
+};
