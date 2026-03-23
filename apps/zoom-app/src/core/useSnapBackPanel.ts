@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SnapBackHostAdapter } from "../hosts";
-import type { Mode, Recap, RecapLength, SessionRecord, TranscriptChunk } from "../types";
+import type { Mode, Recap, RecapLength, SessionRecord, StudyPack, TranscriptChunk } from "../types";
 
 type UseSnapBackPanelOptions = {
   host: SnapBackHostAdapter;
@@ -25,6 +25,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [studyPack, setStudyPack] = useState<StudyPack | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -114,6 +115,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
       setRecaps([]);
       setLatestSummary(null);
       setFullSummary("");
+      setStudyPack(null);
       setDepartureTimestamp(null);
       setConsentAccepted(false);
       setConsentOpen(false);
@@ -190,6 +192,20 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     }
   }
 
+  async function handleGenerateStudyPack() {
+    if (!sessionId) return;
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const generatedStudyPack = await host.generateStudyPack(sessionId);
+      setStudyPack(generatedStudyPack);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to generate study pack.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return {
     absenceSeconds,
     consentAccepted,
@@ -212,6 +228,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     session,
     sessionId,
     showSummaryModal,
+    studyPack,
     transcript,
     fullSummaryOpen: showSummaryModal,
     setDarkMode,
@@ -226,6 +243,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     handleConsentAccept,
     handleEndSession,
     handleExportNotion,
+    handleGenerateStudyPack,
     handleLeave: () => setDepartureTimestamp(new Date().toISOString()),
     handleStartSession,
     handleConsentClose: () => {

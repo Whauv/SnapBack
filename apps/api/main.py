@@ -81,6 +81,10 @@ class NotionExportRequest(BaseModel):
     notion_api_key: str | None = None
 
 
+class StudyPackRequest(BaseModel):
+    session_id: str
+
+
 scheduler = BackgroundScheduler()
 summarizer = GroqSummarizer(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -264,3 +268,20 @@ def export_notion(payload: NotionExportRequest) -> dict:
         api_key=api_key,
         page_id=payload.page_id,
     )
+
+
+@app.post("/study/pack")
+def generate_study_pack(payload: StudyPackRequest) -> dict:
+    bundle = get_session_bundle(payload.session_id)
+    if not bundle:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    transcript_text = "\n".join(chunk["text"] for chunk in bundle.transcript)
+    study_pack = summarizer.generate_study_pack(
+        transcript_text,
+        language=bundle.session.get("language", "English"),
+    )
+    return {
+        "session_id": payload.session_id,
+        "study_pack": study_pack,
+    }

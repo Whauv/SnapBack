@@ -7,6 +7,7 @@ import RecapHistory from "./components/RecapHistory";
 import RecapPanel from "./components/RecapPanel";
 import SessionControls from "./components/SessionControls";
 import SettingsPanel from "./components/SettingsPanel";
+import StudyPackPanel from "./components/StudyPackPanel";
 import TranscriptDrawer from "./components/TranscriptDrawer";
 import { exportMarkdownNotes, exportPdfNotes } from "./exporters";
 import { createZoomHostAdapter } from "./hosts";
@@ -106,6 +107,13 @@ function App() {
             />
 
             <RecapHistory recaps={panel.recaps} />
+
+            <StudyPackPanel
+              canGenerate={Boolean(panel.sessionId) && !panel.loading}
+              loading={panel.loading}
+              studyPack={panel.studyPack}
+              onGenerate={() => void panel.handleGenerateStudyPack()}
+            />
 
             <SettingsPanel
               mode={panel.mode}

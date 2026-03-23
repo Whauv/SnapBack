@@ -75,3 +75,18 @@ export async function exportBackendSessionToNotion(sessionId: string, pageId: st
     }),
   });
 }
+
+export async function generateBackendStudyPack(sessionId: string) {
+  return request<{
+    session_id: string;
+    study_pack: {
+      outline: string[];
+      flashcards: { question: string; answer: string }[];
+      quiz_questions: { question: string; answer: string; explanation: string }[];
+      review_priorities: string[];
+    };
+  }>("/study/pack", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}

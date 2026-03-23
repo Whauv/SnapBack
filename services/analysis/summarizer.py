@@ -23,6 +23,16 @@ def _safe_json_array(text: str) -> list[str]:
     return []
 
 
+def _safe_json_object(text: str) -> dict:
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+    return {}
+
+
 class GroqSummarizer:
     def __init__(self, api_key: str | None, model: str = "llama-3.3-70b-versatile") -> None:
         self.api_key = api_key
@@ -94,6 +104,50 @@ class GroqSummarizer:
         )
         return summary or self._fallback_summary(transcript_text, max_sentences=4)
 
+    def generate_study_pack(self, transcript_text: str, language: str = "English") -> dict:
+        if not transcript_text.strip():
+            return self._fallback_study_pack(transcript_text)
+        if not self.client:
+            return self._fallback_study_pack(transcript_text)
+
+        prompt = (
+            f"Preferred language: {language}\n"
+            "Return valid JSON with these keys only: "
+            "`outline` (array of 3-5 short strings), "
+            "`flashcards` (array of objects with `question` and `answer`), "
+            "`quiz_questions` (array of objects with `question`, `answer`, and `explanation`), "
+            "`review_priorities` (array of 3 short strings). "
+            "Use concise academic phrasing and make the outputs suitable for student revision.\n\n"
+            f"Transcript:\n{transcript_text}"
+        )
+        response = self._chat("You are a study assistant. Return only valid JSON.", prompt, temperature=0.2)
+        parsed = _safe_json_object(response)
+        if not parsed:
+            return self._fallback_study_pack(transcript_text)
+        return {
+            "outline": [str(item).strip() for item in parsed.get("outline", []) if str(item).strip()],
+            "flashcards": [
+                {
+                    "question": str(item.get("question", "")).strip(),
+                    "answer": str(item.get("answer", "")).strip(),
+                }
+                for item in parsed.get("flashcards", [])
+                if str(item.get("question", "")).strip() and str(item.get("answer", "")).strip()
+            ],
+            "quiz_questions": [
+                {
+                    "question": str(item.get("question", "")).strip(),
+                    "answer": str(item.get("answer", "")).strip(),
+                    "explanation": str(item.get("explanation", "")).strip(),
+                }
+                for item in parsed.get("quiz_questions", [])
+                if str(item.get("question", "")).strip() and str(item.get("answer", "")).strip()
+            ],
+            "review_priorities": [
+                str(item).strip() for item in parsed.get("review_priorities", []) if str(item).strip()
+            ],
+        }
+
     @staticmethod
     def _fallback_summary(transcript_text: str, max_sentences: int = 3) -> str:
         cleaned = " ".join(transcript_text.split())
@@ -122,3 +176,30 @@ class GroqSummarizer:
             frequency[word] = frequency.get(word, 0) + 1
         ranked = sorted(frequency.items(), key=lambda item: (-item[1], item[0]))
         return [word for word, _ in ranked[:5]]
+
+    def _fallback_study_pack(self, transcript_text: str) -> dict:
+        summary = self._fallback_summary(transcript_text, max_sentences=4)
+        keywords = self._fallback_keywords(transcript_text)
+        outline = [f"Review concept: {keyword.title()}" for keyword in keywords[:4]] or [summary]
+        flashcards = [
+            {
+                "question": f"What is the significance of {keyword} in this lecture?",
+                "answer": f"{keyword.title()} was identified as a recurring concept in the session transcript.",
+            }
+            for keyword in keywords[:4]
+        ]
+        quiz_questions = [
+            {
+                "question": f"Explain {keyword} in the context of this lecture.",
+                "answer": f"{keyword.title()} appears to be one of the important recurring ideas discussed.",
+                "explanation": "This fallback prompt is based on transcript term frequency rather than model reasoning.",
+            }
+            for keyword in keywords[:3]
+        ]
+        review_priorities = [keyword.title() for keyword in keywords[:3]] or ["Review the lecture summary carefully."]
+        return {
+            "outline": outline[:5],
+            "flashcards": flashcards,
+            "quiz_questions": quiz_questions,
+            "review_priorities": review_priorities,
+        }

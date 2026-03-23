@@ -2,6 +2,7 @@ import {
   createBackendRecap,
   endBackendSession,
   exportBackendSessionToNotion,
+  generateBackendStudyPack,
   getBackendSessionTranscript,
   startBackendSession,
 } from "./backendClient";
@@ -64,6 +65,10 @@ export function createBrowserHostAdapter(): SnapBackHostAdapter {
     },
     getSessionTranscript(sessionId) {
       return getBackendSessionTranscript(sessionId);
+    },
+    async generateStudyPack(sessionId) {
+      const result = await generateBackendStudyPack(sessionId);
+      return result.study_pack;
     },
     async exportToNotion(sessionId, pageId, notionApiKey) {
       const result = await exportBackendSessionToNotion(sessionId, pageId, notionApiKey);
