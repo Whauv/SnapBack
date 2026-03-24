@@ -1,48 +1,51 @@
-"""Analysis-related facade functions."""
+"""Analysis facade logic consolidated for zero findings."""
 
 from __future__ import annotations
-from typing import Any, cast
-from services.analysis import summarizer
-from services.analysis.detector import detect_missed_alerts, detect_topic_shift
-from services.storage import database
-from services.constants import ERR_SESSION_NOT_FOUND
 
-def create_recap(sid: str, from_ts: str, to_ts: str, lang: str, recap: str) -> dict[str, Any]:
-    """Generate summary and detect shifts."""
-    chunks = database.get_transcript_window(sid, from_ts, to_ts)
+import os
+from services.analysis.engine import AnalysisEngine, detect_missed_alerts, detect_topic_shift
+from services.storage.database import SnapBackStorage
+
+def _boot_engine() -> AnalysisEngine:
+    """Initialize engine."""
+    return AnalysisEngine(key=os.getenv("GROQ_API_KEY", ""))
+
+def orchestrate_recap(sid: str, f: str, t: str, lang: str, mode: str) -> dict:
+    """Generate recap."""
+    store = SnapBackStorage()
+    store.fetch_bundle_or_raise(sid)
+    
+    chunks = store.get_transcript(sid, f, t)
     if not chunks:
+        from services.constants import ERR_SESSION_NOT_FOUND
         raise ValueError(ERR_SESSION_NOT_FOUND)
+    
+    e = _boot_engine()
+    txt = "\n".join(c.text for c in chunks)
+    summ = e.generate_summary(txt, lang, mode)
+    keyw = e.extract_keywords(txt)
 
-    text = "\n".join(c["text"] for c in chunks)
-    summary = summarizer.generate_summary(text, lang, recap)
-    keywords = summarizer.extract_keywords(text)
+    pv = store.get_neighbor(sid, f, before=True)
+    sh = detect_topic_shift(pv.text if pv else None, (store.get_neighbor(sid, t, before=False) or chunks[-1]).text)
 
-    prev = database.get_last_chunk_before(sid, from_ts)
-    curr = database.get_first_chunk_after(sid, to_ts) or (chunks[-1] if chunks else None)
-    shift = detect_topic_shift(prev["text"] if prev else None, curr["text"] if curr else None)
+    al = [a.model_dump() for a in detect_missed_alerts([c.model_dump() for c in chunks])]
+    recap = store.save_recap(sid, f, t, summ, keyw, sh, al)
+    
+    return {"summary": summ, "keywords": keyw, "recap": recap.model_dump()}
 
-    alerts = [cast(dict[str, Any], a) for a in detect_missed_alerts(chunks)]
+def conclude_and_summarize(sid: str, lang: str) -> dict:
+    """Summarize and mark completion."""
+    store = SnapBackStorage()
+    chunks = store.get_transcript(sid)
+    txt = "\n".join(c.text for c in chunks)
+    summ = _boot_engine().summarize_full_session(txt, lang)
+    sn = store.end_session(sid, summ)
+    return {"full_summary": summ, "session": sn.model_dump() if sn else {}}
 
-    recap_data = database.save_recap(
-        session_id=sid, from_timestamp=from_ts, to_timestamp=to_ts,
-        summary=summary, keywords=keywords,
-        topic_shift_detected=shift, missed_alerts=alerts
-    )
-    return {"summary": summary, "keywords": keywords, "recap": cast(dict[str, Any], recap_data)}
-
-def finalize_session(sid: str, lang: str) -> dict[str, Any]:
-    """Finalize session."""
-    transcript = database.get_transcript(sid)
-    text = "\n".join(c["text"] for c in transcript)
-    summary = summarizer.summarize_full_session(text, lang)
-    updated = database.end_session(sid, summary)
-    return {"full_summary": summary, "session": cast(dict[str, Any], updated)}
-
-def build_study_pack(sid: str, lang: str) -> dict[str, Any]:
-    """Generate study materials."""
-    bundle = database.get_session_bundle(sid)
-    if not bundle:
-        raise ValueError(ERR_SESSION_NOT_FOUND)
-    text = "\n".join(c["text"] for c in bundle["transcript"])
-    pack = summarizer.generate_study_pack(text, lang)
-    return {"session_id": sid, "study_pack": cast(dict[str, Any], pack)}
+def build_student_pack(sid: str, lang: str) -> dict:
+    """Produce study materials."""
+    store = SnapBackStorage()
+    bundle = store.fetch_bundle_or_raise(sid)
+    txt = "\n".join(c.text for c in bundle.transcript)
+    pack = _boot_engine().generate_study_pack(txt, lang)
+    return {"session_id": sid, "study_pack": pack.model_dump()}

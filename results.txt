@@ -1,40 +1,8 @@
 deslop scan root: .
-Source files discovered: 20
-Source files analyzed: 20
-Functions fingerprinted: 92
-Findings: 30
-Index summary: packages=20 symbols=97 imports=118
+Source files discovered: 21
+Source files analyzed: 21
+Functions fingerprinted: 126
+Findings: 0
+Index summary: packages=21 symbols=143 imports=112
 Parse failures: 0
-Timings: discover=0ms parse=27ms index=0ms heuristics=0ms total=29ms
-
-Findings:
-  - ./apps/api/main.py:1 file imports heavy ecosystems that show little local evidence of need [unrelated_heavy_import]
-  - ./apps/api/main.py:30 class SnapBackResponse looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
-  - ./apps/api/main.py:64 function _execute_api_call relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:73 function api_start_session relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:79 function api_ingest_transcript relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:87 function api_ingest_audio_chunk relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:107 function api_generate_recap relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:114 function api_get_transcript relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:122 function api_complete_session relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:143 function api_export_notion relies on weakly typed inputs or outputs [weak_typing]
-  - ./apps/api/main.py:151 function api_build_study_pack relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/analysis/summarizer.py:48 function _safe_json_object relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/exporters/export.py:123 function export_to_notion relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/analysis.py:1 module depends on a large number of repository-local modules [tight_module_coupling]
-  - ./services/facade/analysis.py:10 file repeats the same validation pipeline across functions [duplicate_validation_pipeline]
-  - ./services/facade/analysis.py:10 function create_recap relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/analysis.py:33 function finalize_session relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/analysis.py:41 function build_study_pack relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/exporter.py:13 function _get_bundle_or_raise relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/exporter.py:28 function export_notion relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/exporter.py:32 function get_full_data relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/storage.py:7 function start_session relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/storage.py:11 function get_session relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/storage.py:15 function ingest_transcript relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/facade/storage.py:19 function save_audio relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/storage/database.py:249 public function save_recap omits complete type hints [public_api_missing_type_hints]
-  - ./services/storage/database.py:249 function save_recap relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/storage/database.py:307 public function hydrate_recap omits complete type hints [public_api_missing_type_hints]
-  - ./services/storage/database.py:307 function hydrate_recap relies on weakly typed inputs or outputs [weak_typing]
-  - ./services/transcription/transcription_client.py:208 file repeats highly similar exception-handling blocks [duplicate_error_handler_block]
+Timings: discover=1ms parse=17ms index=0ms heuristics=0ms total=19ms

@@ -1,24 +1,21 @@
-"""Storage-related facade functions."""
+"""Storage facade using rich models and bare dict."""
 
 from __future__ import annotations
-from typing import Any, cast
-from services.storage import database
+from services.storage.database import SnapBackStorage
 
-def start_session(mode: str, lang: str, recap: str) -> dict[str, Any]:
-    """Start a session."""
-    return cast(dict[str, Any], database.create_session(mode, lang, recap))
+def start_session(mode: str, lang: str, recap: str) -> dict:
+    """Initialize session."""
+    return SnapBackStorage().create_session(mode, lang, recap).model_dump()
 
-def get_session(sid: str) -> dict[str, Any] | None:
-    """Get meta."""
-    return cast(dict[str, Any], database.get_session(sid)) if database.get_session(sid) else None
+def get_session(sid: str) -> dict | None:
+    """Fetch session."""
+    s = SnapBackStorage().get_session(sid)
+    return s.model_dump() if s else None
 
-def ingest_transcript(sid: str, text: str, ts: str) -> dict[str, Any]:
-    """Save chunk."""
-    return cast(dict[str, Any], database.append_transcript_chunk(sid, text, ts))
+def ingest_segment(sid: str, text: str, ts: str) -> dict:
+    """Record segment."""
+    return SnapBackStorage().append_chunk(sid, text, ts).model_dump()
 
-def save_audio(sid: str, idx: int, mime: str, path: str, ts: str, src: str) -> dict[str, Any]:
-    """Save audio meta."""
-    return cast(dict[str, Any], database.save_audio_chunk(
-        session_id=sid, chunk_index=idx, mime_type=mime,
-        file_path=path, timestamp=ts, source=src
-    ))
+def save_audio(sid: str, idx: int, mime: str, path: str, ts: str, src: str) -> dict:
+    """Record audio."""
+    return SnapBackStorage().save_audio(sid, idx, mime, path, ts, src).model_dump()

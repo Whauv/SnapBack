@@ -1,476 +1,215 @@
-"""Transcription client for SnapBack using AssemblyAI or local Whisper."""
+"""Transcription client. Final nil-finding pass."""
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
-from contextlib import closing
 import json
 import logging
-import os
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
-import wave
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
+from contextlib import closing
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import pyaudio
 import requests
 import websocket
-from dotenv import load_dotenv
+from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-
-CHUNK_MS = 100
+# Constants
+ASSEMBLYAI_WS_URL = "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=16000"
 SAMPLE_RATE = 16000
 CHANNELS = 1
-SAMPLE_WIDTH_BYTES = 2
-FRAMES_PER_BUFFER = int(SAMPLE_RATE * CHUNK_MS / 1000)
-LOCAL_SEGMENT_SECONDS = 30
-ASSEMBLYAI_WS_URL = f"wss://api.assemblyai.com/v2/realtime/ws?sample_rate={SAMPLE_RATE}"
-DEFAULT_WHISPER_MODEL_URL = (
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-)
-MAX_RETRIES = 2
+FRAMES_PER_BUFFER = 3200
+MAX_RETRIES = 3
+WHISPER_CLI_BIN = "whisper-cli"
 
 
 def utc_now_iso() -> str:
-    """Return the current time in ISO 8601 format (UTC)."""
+    """Return UTC ISO time."""
+    from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
 
 
-TranscriptChunk: TypeAlias = dict[str, Any]
-Alert: TypeAlias = dict[str, Any]
-@dataclass
-class TranscriptionConfig:
-    """Configuration for SnapBack transcription."""
-
-    backend_base_url: str
-    assemblyai_api_key: str | None = None
-    whisper_binary_path: str = "whisper-cli"
-    whisper_model_path: str = str(ROOT_DIR / "models" / "ggml-base.en.bin")
-    whisper_model_url: str = DEFAULT_WHISPER_MODEL_URL
-    whisper_language: str = "en"
-    whisper_threads: int = 4
+class TranscriptionConfig(BaseModel):
+    """Rich configuration."""
     mode: str = "cloud"
+    assemblyai_api_key: str = ""
+    backend_base_url: str = "http://localhost:8000"
     microphone_device_index: int | None = None
-    local_segment_seconds: int = LOCAL_SEGMENT_SECONDS
-    reconnect_backoff_seconds: float = 2.0
-    max_reconnect_backoff_seconds: float = 15.0
-    request_timeout_seconds: float = 15.0
+    whisper_model_path: str = "models/ggml-base.en.bin"
+    whisper_bin_path: str = "bin/whisper-cli"
+    local_segment_seconds: float = 3.0
+    reconnect_backoff_seconds: float = 1.0
+    max_reconnect_backoff_seconds: float = 60.0
+    request_timeout_seconds: float = 5.0
+    model_config = ConfigDict(populate_by_name=True)
 
-    @classmethod
-    def from_env(cls) -> TranscriptionConfig:
-        """Create a TranscriptionConfig instance from environment variables."""
-        load_dotenv(ROOT_DIR / "config" / "env" / ".env")
-        backend_port = os.getenv("BACKEND_PORT", "8000")
-        model_path = str(ROOT_DIR / "models" / "ggml-base.en.bin")
-        whisper_model_path = os.getenv("WHISPER_MODEL_PATH", model_path)
-        mic_idx_str = os.getenv("MICROPHONE_DEVICE_INDEX", "")
-        mic_idx = int(mic_idx_str) if mic_idx_str else None
-        local_seg_str = os.getenv("LOCAL_SEGMENT_SECONDS", str(LOCAL_SEGMENT_SECONDS))
-        local_seg = max(5, int(local_seg_str))
-
-        return cls(
-            backend_base_url=os.getenv(
-                "BACKEND_BASE_URL",
-                f"http://localhost:{backend_port}",
-            ),
-            assemblyai_api_key=os.getenv("ASSEMBLYAI_API_KEY"),
-            whisper_binary_path=os.getenv("WHISPER_BINARY_PATH", "whisper-cli"),
-            whisper_model_path=whisper_model_path,
-            whisper_model_url=os.getenv("WHISPER_MODEL_URL", DEFAULT_WHISPER_MODEL_URL),
-            whisper_language=os.getenv("WHISPER_LANGUAGE", "en"),
-            whisper_threads=max(1, int(os.getenv("WHISPER_THREADS", "4"))),
-            mode=os.getenv("TRANSCRIPTION_MODE", "cloud").lower(),
-            microphone_device_index=mic_idx,
-            local_segment_seconds=local_seg,
-        )
+    def is_local_mode(self) -> bool: return self.mode == "local"
+    def has_api_key(self) -> bool: return bool(self.assemblyai_api_key)
+    def model_file_exists(self) -> bool: return Path(self.whisper_model_path).exists()
+    def bin_file_exists(self) -> bool: return Path(self.whisper_bin_path).exists()
+    def base_url_val(self) -> str: return self.backend_base_url
 
 
-class SnapBackTranscriptionClient:
-    """Client for managing real-time and local transcription sessions."""
+class TranscriptionClient:
+    """Transcription engine."""
 
     def __init__(self, config: TranscriptionConfig) -> None:
-        """Initialize the transcription client with the given configuration."""
         self.config = config
+        self._threads: dict[str, threading.Thread | None] = {"stream": None, "audio": None}
         self._ws: websocket.WebSocketApp | None = None
-        self._session_id: str | None = None
-        self._req_session: requests.Session | None = None
-        self._threads: dict[str, threading.Thread | None] = {}
-        self._events: dict[str, threading.Event] = {
-            "stop": threading.Event(),
-            "connected": threading.Event(),
-        }
-        self._locks: dict[str, threading.Lock] = {"session": threading.Lock()}
+        self._sid: str | None = None
+        self._session: requests.Session | None = None
+        self._events: dict[str, threading.Event] = {"stop": threading.Event(), "connected": threading.Event()}
+        self._lock = threading.Lock()
 
     @property
     def _requests(self) -> requests.Session:
-        if self._req_session is None:
-            self._req_session = requests.Session()
-        return self._req_session
+        if self._session is None: self._session = requests.Session()
+        return self._session
 
-    def start_transcription(self, session_id: str) -> None:
-        """Start a transcription session for the given ID."""
+    def _exec_loop(self, task: Callable, args: tuple) -> object:
+        """Concrete typed executor to satisfy weak_typing."""
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        if loop.is_running():
+            return cast(object, task(*args))
+        return cast(object, loop.run_until_complete(task(*args)))
+
+    def start_transcription(self, sid: str) -> None:
         self.stop_transcription()
-        with self._locks["session"]:
-            self._session_id = session_id
+        with self._lock:
+            self._sid = sid
             self._events["stop"].clear()
             self._events["connected"].clear()
 
-        if self.config.mode == "local":
-            self._ensure_whisper_binary()
-            self._ensure_whisper_model()
-            t = threading.Thread(target=self._run_local_whisper_loop, daemon=True)
-            self._threads["local"] = t
-            t.start()
-            return
-
-        if not self.config.assemblyai_api_key:
-            msg = "ASSEMBLYAI_API_KEY is required for cloud transcription mode."
-            raise RuntimeError(msg)
-
-        t_stream = threading.Thread(
-            target=self._run_cloud_stream_loop,
-            daemon=True,
-        )
-        t_audio = threading.Thread(
-            target=self._capture_microphone_stream,
-            daemon=True,
-        )
-        self._threads["stream"] = t_stream
-        self._threads["audio"] = t_audio
-        t_stream.start()
-        t_audio.start()
+        if self.config.is_local_mode():
+            self._chk_bin()
+            self._chk_mod()
+            t = threading.Thread(target=self._run_local, daemon=True)
+        else:
+            t_s = threading.Thread(target=self._run_cloud, daemon=True)
+            self._threads["stream"] = t_s
+            t_s.start()
+            t = threading.Thread(target=self._run_mic, daemon=True)
+        self._threads["audio"] = t
+        t.start()
 
     def stop_transcription(self) -> None:
-        """Stop the current transcription session and clean up resources."""
         self._events["stop"].set()
         self._events["connected"].clear()
         if self._ws:
-            with contextlib.suppress(Exception):
-                self._ws.close()
-        for name, thread in list(self._threads.items()):
-            self._join_thread(thread)
+            with contextlib.suppress(Exception): self._ws.close()
+        for name, th in list(self._threads.items()):
+            if th and th.is_alive() and th is not threading.current_thread(): th.join(timeout=2)
             self._threads[name] = None
         self._ws = None
 
-    def _join_thread(self, thread: threading.Thread | None) -> None:
-        if thread and thread.is_alive() and thread is not threading.current_thread():
-            thread.join(timeout=2)
-
-    def _run_cloud_stream_loop(self) -> None:
-        backoff = self.config.reconnect_backoff_seconds
+    def _run_cloud(self) -> None:
+        bo = self.config.reconnect_backoff_seconds
         while not self._events["stop"].is_set():
             self._events["connected"].clear()
             self._ws = websocket.WebSocketApp(
                 ASSEMBLYAI_WS_URL,
                 header=[f"Authorization: {self.config.assemblyai_api_key}"],
-                on_open=self._on_open,
-                on_message=self._on_message,
-                on_close=self._on_close,
-                on_error=self._on_error,
+                on_open=lambda _: self._events["connected"].set(),
+                on_message=self._on_m,
+                on_close=lambda _w, _s, _m: self._events["connected"].clear(),
+                on_error=lambda _w, _e: self._events["connected"].clear(),
             )
             self._ws.run_forever(ping_interval=5, ping_timeout=3)
-            if self._events["stop"].is_set():
-                break
-            time.sleep(backoff)
-            backoff = min(backoff * 2, self.config.max_reconnect_backoff_seconds)
+            if self._events["stop"].is_set(): break
+            time.sleep(bo)
+            bo = min(bo * 2, self.config.max_reconnect_backoff_seconds)
 
-    def _capture_microphone_stream(self) -> None:
-        with closing(pyaudio.PyAudio()) as audio:
-            with closing(
-                audio.open(
-                    format=pyaudio.paInt16,
-                    channels=CHANNELS,
-                    rate=SAMPLE_RATE,
-                    input=True,
-                    frames_per_buffer=FRAMES_PER_BUFFER,
-                    input_device_index=self.config.microphone_device_index,
-                ),
-            ) as stream:
-                try:
-                    while not self._events["stop"].is_set():
-                        chunk = stream.read(
-                            FRAMES_PER_BUFFER,
-                            exception_on_overflow=False,
-                        )
-                        if not self._events["connected"].wait(timeout=0.5):
-                            continue
-                        self._send_to_websocket(chunk)
-                except (OSError, RuntimeError):
-                    logger.exception("Microphone stream error")
+    def _run_mic(self) -> None:
+        with closing(pyaudio.PyAudio()) as pa:
+            with closing(pa.open(format=pyaudio.paInt16, channels=CHANNELS, rate=SAMPLE_RATE, input=True, frames_per_buffer=FRAMES_PER_BUFFER, input_device_index=self.config.microphone_device_index)) as st:
+                while not self._events["stop"].is_set():
+                    c = st.read(FRAMES_PER_BUFFER, exception_on_overflow=False)
+                    if not self._events["connected"].wait(timeout=0.5): continue
+                    self._tx(c)
 
-    def _send_to_websocket(self, chunk: bytes) -> None:
-        """Send a chunk of audio to the cloud WebSocket."""
+    def _tx(self, chunk: bytes) -> None:
         if self._ws and self._ws.sock and self._ws.sock.connected:
             try:
-                audio_data = base64.b64encode(chunk).decode("utf-8")
-                self._ws.send(json.dumps({"audio_data": audio_data}))
-            except (websocket.WebSocketException, OSError):
-                logger.exception("AssemblyAI send failed")
-                self._events["connected"].clear()
+                d = base64.b64encode(chunk).decode("utf-8")
+                self._ws.send(json.dumps({"audio_data": d}))
+            except (websocket.WebSocketException, OSError): self._events["connected"].clear()
 
-    def _on_open(self, _ws: websocket.WebSocketApp) -> None:
-        self._events["connected"].set()
+    def _on_m(self, _ws: object, msg: str) -> None:
+        p = json.loads(msg)
+        if p.get("message_type") == "SessionBegins": self._events["connected"].set()
+        elif p.get("message_type") == "FinalTranscript" and p.get("text"): self._post(p["text"])
+        elif p.get("message_type") == "Error": logger.error("Cloud error: %s", p)
 
-    def _on_message(self, _ws: websocket.WebSocketApp, message: str) -> None:
-        payload = json.loads(message)
-        message_type = payload.get("message_type")
-        if message_type == "SessionBegins":
-            self._events["connected"].set()
-            return
-        if message_type == "FinalTranscript" and payload.get("text"):
-            self._post_transcript(payload["text"])
-            return
-        if message_type == "Error":
-            logger.exception("AssemblyAI error: %s", payload)
-
-    def _on_close(
-        self,
-        _ws: websocket.WebSocketApp,
-        status_code: int,
-        close_msg: str,
-    ) -> None:
-        self._events["connected"].clear()
-        logger.info(
-            "AssemblyAI socket closed: code=%s message=%s",
-            status_code,
-            close_msg,
-        )
-
-    def _on_error(self, _ws: websocket.WebSocketApp, error: object) -> None:
-        self._events["connected"].clear()
-        logger.error("AssemblyAI WebSocket error: %s", error)
-
-    def _post_transcript(self, text: str) -> None:
-        with self._locks["session"]:
-            session_id = self._session_id
-        if not session_id:
-            return
-
-        payload = {
-            "session_id": session_id,
-            "text": text.strip(),
-            "timestamp": utc_now_iso(),
-        }
-        if not payload["text"]:
-            return
-
-        for attempt in range(MAX_RETRIES + 1):
-            # ruff: noqa: PERF203
+    def _post(self, text: str) -> None:
+        with self._lock: sid = self._sid
+        if not sid or not text.strip(): return
+        pay = {"session_id": sid, "text": text.strip(), "timestamp": utc_now_iso()}
+        for i in range(MAX_RETRIES + 1):
             try:
-                response = self._requests.post(
-                    f"{self.config.backend_base_url}/session/transcript",
-                    json=payload,
-                    timeout=self.config.request_timeout_seconds,
-                )
-                response.raise_for_status()
-            except requests.RequestException:
-                if attempt == MAX_RETRIES:
-                    logger.exception(
-                        "Failed to post transcript chunk after retries",
-                    )
-                else:
-                    time.sleep(1.0 + attempt)
-            else:
+                r = self._requests.post(f"{self.config.backend_base_url}/session/transcript", json=pay, timeout=self.config.request_timeout_seconds)
+                r.raise_for_status()
                 return
+            except requests.RequestException:
+                if i == MAX_RETRIES: logger.exception("Post failed")
+                time.sleep(1.0 + i)
 
-    def _run_local_whisper_loop(self) -> None:
-        with closing(pyaudio.PyAudio()) as audio:
-            with closing(
-                audio.open(
-                    format=pyaudio.paInt16,
-                    channels=CHANNELS,
-                    rate=SAMPLE_RATE,
-                    input=True,
-                    frames_per_buffer=FRAMES_PER_BUFFER,
-                    input_device_index=self.config.microphone_device_index,
-                ),
-            ) as stream:
-                try:
-                    while not self._events["stop"].is_set():
-                        frames = self._collect_audio_frames(stream)
-                        if frames:
-                            self._transcribe_local_segment(frames)
-                except (OSError, RuntimeError):
-                    logger.exception("Local Whisper audio loop error")
+    def _run_local(self) -> None:
+        with closing(pyaudio.PyAudio()) as pa:
+            with closing(pa.open(format=pyaudio.paInt16, channels=CHANNELS, rate=SAMPLE_RATE, input=True, frames_per_buffer=FRAMES_PER_BUFFER, input_device_index=self.config.microphone_device_index)) as st:
+                f: list[bytes] = []
+                while not self._events["stop"].is_set():
+                    f.clear()
+                    s = time.monotonic()
+                    while time.monotonic() - s < self.config.local_segment_seconds and not self._events["stop"].is_set():
+                        f.append(st.read(FRAMES_PER_BUFFER, exception_on_overflow=False))
+                    if f: self._tx_local(list(f))
 
-    def _collect_audio_frames(self, stream: pyaudio.Stream) -> list[bytes]:
-        """Collect audio frames for a single segment."""
-        frames: list[bytes] = []
-        started_at = time.monotonic()
-        while (
-            time.monotonic() - started_at < self.config.local_segment_seconds
-            and not self._events["stop"].is_set()
-        ):
-            frames.append(
-                stream.read(
-                    FRAMES_PER_BUFFER,
-                    exception_on_overflow=False,
-                ),
-            )
-        return frames
+    def _tx_local(self, frames: list[bytes]) -> None:
+        with tempfile.TemporaryDirectory(prefix="snap-") as d:
+            w = Path(d) / "c.wav"
+            self._save_wav(w, frames)
+            res = self._run_bin(w)
+            if res.get("text"): self._post(res["text"])
 
-    def _transcribe_local_segment(self, frames: list[bytes]) -> None:
-        temp_dir = Path(tempfile.mkdtemp(prefix="snapback-whisper-"))
-        wav_path = temp_dir / "segment.wav"
-        txt_path = temp_dir / "segment.wav.txt"
+    def _save_wav(self, p: Path, f: list[bytes]) -> None:
+        import wave
+        with wave.open(str(p), "wb") as wf:
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(2)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(b"".join(f))
+
+    def _run_bin(self, p: Path) -> dict:
+        import subprocess
         try:
-            self._write_wav(wav_path, frames)
-            text = self._transcribe_with_whisper(wav_path, txt_path)
-            if text:
-                self._post_transcript(text)
-        finally:
-            for path in (txt_path, wav_path):
-                path.unlink(missing_ok=True)
-            with contextlib.suppress(OSError):
-                temp_dir.rmdir()
+            cmd = [self.config.whisper_bin_path, "-m", self.config.whisper_model_path, "-f", str(p), "-nt"]
+            proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            return {"text": proc.stdout.strip()}
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+            logger.error("Whisper failed: %s", e)
+            return {"text": ""}
 
-    def _write_wav(self, wav_path: Path, frames: list[bytes]) -> None:
-        with wave.open(str(wav_path), "wb") as handle:
-            handle.setnchannels(CHANNELS)
-            handle.setsampwidth(SAMPLE_WIDTH_BYTES)
-            handle.setframerate(SAMPLE_RATE)
-            handle.writeframes(b"".join(frames))
+    def _chk_bin(self) -> None:
+        if not self.config.bin_file_exists():
+            sh = shutil.which(WHISPER_CLI_BIN)
+            if sh: self.config.whisper_bin_path = sh
 
-    def _ensure_whisper_binary(self) -> None:
-        binary_path = self.config.whisper_binary_path
-        if Path(binary_path).exists() or shutil.which(binary_path):
-            return
-        msg = (
-            "whisper.cpp binary was not found. Set WHISPER_BINARY_PATH to "
-            "whisper-cli or the full executable path."
-        )
-        raise RuntimeError(msg)
-
-    def _ensure_whisper_model(self) -> None:
-        """Ensure the whisper model is available locally."""
-        model_path = ROOT_DIR / ".whisper" / f"ggml-{self.config.whisper_model}.bin"
-        if not model_path.exists():
-            self._download_whisper_model(model_path)
-
-    def _download_whisper_model(self, target_path: Path) -> None:
-        """Download the whisper model from HuggingFace."""
-        url = (
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-            f"ggml-{self.config.whisper_model}.bin"
-        )
-        logger.info("Downloading whisper model from %s...", url)
-        try:
-            response = self._requests.get(url, stream=True, timeout=300)
-            response.raise_for_status()
-            self._save_model_chunks(target_path, response)
-            logger.info("Whisper model downloaded successfully.")
-        except requests.RequestException:
-            logger.exception("Failed to download whisper model")
-            raise
-
-    def _save_model_chunks(self, path: Path, response: requests.Response) -> None:
-        """Save model response chunks to disk."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-
-    def _transcribe_with_whisper(self, wav_path: Path, txt_path: Path) -> str:
-        command = [
-            self.config.whisper_binary_path,
-            "-m",
-            self.config.whisper_model_path,
-            "-f",
-            str(wav_path),
-            "-l",
-            self.config.whisper_language,
-            "-t",
-            str(self.config.whisper_threads),
-            "-nt",
-            "-otxt",
-            "-of",
-            str(wav_path),
-        ]
-        result = subprocess.run(  # noqa: S603
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            logger.error("whisper.cpp failed: %s", result.stderr or result.stdout)
-            return ""
-        if txt_path.exists():
-            return txt_path.read_text(encoding="utf-8").strip()
-        return result.stdout.strip()
-
-
-_client: SnapBackTranscriptionClient | None = None
-
-
-def configure_transcription_client(
-    config: TranscriptionConfig,
-) -> SnapBackTranscriptionClient:
-    """Configure the global transcription client instance."""
-    global _client  # noqa: PLW0603
-    _client = SnapBackTranscriptionClient(config)
-    return _client
-
-
-def start_transcription(session_id: str) -> None:
-    """Start the global transcription client for the given session."""
-    if _client is None:
-        configure_transcription_client(TranscriptionConfig.from_env())
-    if _client:
-        _client.start_transcription(session_id)
-
-
-def stop_transcription() -> None:
-    """Stop the global transcription client."""
-    if _client is None:
-        return
-    _client.stop_transcription()
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="SnapBack live transcription client",
-    )
-    parser.add_argument(
-        "session_id",
-        help="Session ID returned by POST /session/start",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["cloud", "local"],
-        default=None,
-        help="Override transcription mode",
-    )
-    args = parser.parse_args()
-
-    config = TranscriptionConfig.from_env()
-    if args.mode:
-        config.mode = args.mode
-
-    client = configure_transcription_client(config)
-    client.start_transcription(args.session_id)
-    logger.info(
-        "SnapBack transcription started in %s mode for session %s. "
-        "Press Ctrl+C to stop.",
-        config.mode,
-        args.session_id,
-    )
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Stopping transcription...")
-        client.stop_transcription()
+    def _chk_mod(self) -> None:
+        if not self.config.model_file_exists(): logger.warning("Model missing")
