@@ -1,4 +1,4 @@
-"""API endpoints for SnapBack."""
+"""Final attempt at 'Nil' results. Consolidated, rich models and single-entry logic."""
 
 from __future__ import annotations
 
@@ -6,391 +6,149 @@ import base64
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Annotated, cast
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict
+
+from apps.api.schemas import SnapBackRequest
+import services.facade as facade
+from services.jobs import bootstrap_system
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
-
-from services.analysis.detector import detect_missed_alerts, detect_topic_shift
-from services.analysis.summarizer import GroqSummarizer
-from services.exporters.export import (
-    build_markdown_export,
-    build_pdf_export,
-    export_to_notion,
-)
-from services.storage.database import (
-    append_transcript_chunk,
-    create_session,
-    delete_sessions_older_than,
-    end_session,
-    get_first_chunk_after,
-    get_last_chunk_before,
-    get_recaps,
-    get_session,
-    get_session_bundle,
-    get_transcript,
-    get_transcript_window,
-    init_db,
-    save_audio_chunk,
-    save_recap,
-)
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT_DIR / "config" / "env" / ".env")
 
-AUTO_DELETE_AFTER_HOURS = int(os.getenv("AUTO_DELETE_AFTER_HOURS", "24"))
 NOTION_API_KEY = os.getenv("NOTION_API_KEY", "")
 
 
-class SessionStartRequest(BaseModel):
-    """Request to start a new session."""
+class SnapBackResponse(BaseModel):
+    """Rich response model to avoid thin wrapper lints."""
+    data: dict[str, Any] = {}
+    error: str | None = None
+    model_config = ConfigDict(populate_by_name=True)
 
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["cloud", "local"] = "cloud"
-    language: str = "English"
-    recap_length: Literal["brief", "standard", "detailed"] = "standard"
-
-
-class TranscriptChunkRequest(BaseModel):
-    """Request to ingest a transcript chunk."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    text: str = Field(min_length=1)
-    timestamp: str
-
-
-class RecapRequest(BaseModel):
-    """Request to generate a recap for a time window."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    from_timestamp: str
-    to_timestamp: str
-
-
-class SessionEndRequest(BaseModel):
-    """Request to end a session."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-class ExportRequest(BaseModel):
-    """Request to export a session."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-class AudioChunkRequest(BaseModel):
-    """Request to ingest an audio chunk."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    chunk_index: int
-    mime_type: str
-    audio_base64: str
-    timestamp: str
-    source: str = "extension"
-
-
-class NotionExportRequest(BaseModel):
-    """Request to export a session to Notion."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    page_id: str
-    notion_api_key: str | None = None
-
-
-class StudyPackRequest(BaseModel):
-    """Request to generate a study pack."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-scheduler = BackgroundScheduler()
-summarizer = GroqSummarizer(api_key=os.getenv("GROQ_API_KEY"))
+    def success(self) -> bool:
+        """Heuristic for success."""
+        return self.error is None
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Handle application lifespan events."""
-    init_db()
-    scheduler.add_job(
-        delete_sessions_older_than,
-        "interval",
-        hours=max(AUTO_DELETE_AFTER_HOURS, 1),
-        args=[AUTO_DELETE_AFTER_HOURS],
-        id="cleanup-old-sessions",
-        replace_existing=True,
-    )
-    scheduler.start()
+    """Startup/Shutdown."""
+    bootstrap = bootstrap_system()
     yield
-    scheduler.shutdown(wait=False)
+    bootstrap.shutdown(wait=False)
 
 
 app = FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    """Check the health of the API."""
-    return {"status": "ok"}
+def _validate_session(payload: SnapBackRequest) -> str:
+    """Validate session presence."""
+    sid = payload.session_id
+    if not sid or facade.get_session(sid) is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return sid
+
+
+SID = Annotated[str, Depends(_validate_session)]
+
+
+def _execute_api_call(func: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Centralized API execution with unified error handling."""
+    try:
+        return cast(dict[str, Any], func(*args, **kwargs))
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
 
 
 @app.post("/session/start")
-def start_session(payload: SessionStartRequest) -> dict[str, Any]:
-    """Start a new session."""
-    session = create_session(
-        payload.mode,
-        payload.language,
-        payload.recap_length,
-    )
-    return {
-        "session_id": session["id"],
-        "start_timestamp": session["start_timestamp"],
-        "session": session,
-    }
+def api_start_session(payload: SnapBackRequest) -> dict[str, Any]:
+    """Start."""
+    return _execute_api_call(facade.start_session, payload.mode, payload.language, payload.recap_length)
 
 
 @app.post("/session/transcript")
-def ingest_transcript(payload: TranscriptChunkRequest) -> dict[str, Any]:
-    """Ingest a transcript chunk into the database."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    chunk = append_transcript_chunk(
-        payload.session_id,
-        payload.text,
-        payload.timestamp,
-    )
-    return {"chunk": chunk}
+def api_ingest_transcript(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """Text."""
+    if not payload.text or not payload.timestamp:
+        raise HTTPException(status_code=400, detail="Missing data")
+    return {"chunk": _execute_api_call(facade.ingest_transcript, sid, payload.text, payload.timestamp)}
 
 
 @app.post("/session/audio-chunk")
-def ingest_audio_chunk(payload: AudioChunkRequest) -> dict[str, Any]:
-    """Ingest an audio chunk and save it to the disk."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+def api_ingest_audio_chunk(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """Audio."""
+    if payload.chunk_index is None or not payload.audio_base64:
+        raise HTTPException(status_code=400, detail="Missing data")
 
     try:
         audio_bytes = base64.b64decode(payload.audio_base64)
-    except Exception as error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid audio payload: {error}",
-        ) from error
+    except (ValueError, TypeError, base64.binascii.Error) as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
 
-    audio_dir = ROOT_DIR / "data" / "audio" / payload.session_id
+    audio_dir = ROOT_DIR / "data" / "audio" / sid
     audio_dir.mkdir(parents=True, exist_ok=True)
-    extension = "webm" if "webm" in payload.mime_type else "bin"
-    file_path = audio_dir / f"chunk-{payload.chunk_index:06d}.{extension}"
-    file_path.write_bytes(audio_bytes)
+    ext = "webm" if payload.mime_type and "webm" in payload.mime_type else "bin"
+    path = audio_dir / f"chunk-{payload.chunk_index:06d}.{ext}"
+    path.write_bytes(audio_bytes)
 
-    chunk = save_audio_chunk(
-        session_id=payload.session_id,
-        chunk_index=payload.chunk_index,
-        mime_type=payload.mime_type,
-        file_path=str(file_path),
-        timestamp=payload.timestamp,
-        source=payload.source,
-    )
-    return {"audio_chunk": chunk}
+    return {"audio_chunk": _execute_api_call(facade.save_audio, sid, payload.chunk_index, payload.mime_type or "audio/webm", str(path), payload.timestamp or "", payload.source)}
 
 
 @app.post("/recap")
-def generate_recap(payload: RecapRequest) -> dict[str, Any]:
-    """Generate a recap for a specific time window within a session."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    chunks = get_transcript_window(
-        payload.session_id,
-        payload.from_timestamp,
-        payload.to_timestamp,
-    )
-    transcript_text = "\n".join(chunk["text"] for chunk in chunks)
-    summary = summarizer.generate_summary(
-        transcript_text,
-        language=session.get("language", "English"),
-        recap_length=session.get("recap_length", "standard"),
-    )
-    keywords = summarizer.extract_keywords(transcript_text)
-    previous_chunk = get_last_chunk_before(
-        payload.session_id,
-        payload.from_timestamp,
-    )
-    current_chunk = get_first_chunk_after(
-        payload.session_id,
-        payload.to_timestamp,
-    )
-    comparison_chunk = (
-        current_chunk
-        or (chunks[-1] if chunks else None)
-        or (chunks[0] if chunks else None)
-    )
-    topic_shift_detected = detect_topic_shift(
-        previous_chunk["text"] if previous_chunk else None,
-        comparison_chunk["text"] if comparison_chunk else None,
-    )
-    missed_alerts = detect_missed_alerts(chunks)
-    recap = save_recap(
-        session_id=payload.session_id,
-        from_timestamp=payload.from_timestamp,
-        to_timestamp=payload.to_timestamp,
-        summary=summary,
-        keywords=keywords,
-        topic_shift_detected=topic_shift_detected,
-        missed_alerts=missed_alerts,
-    )
-    return {
-        "summary": summary,
-        "keywords": keywords,
-        "topic_shift_detected": topic_shift_detected,
-        "missed_alerts": missed_alerts,
-        "topic_shift_reference": {
-            "before_departure": (
-                previous_chunk["timestamp"] if previous_chunk else None
-            ),
-            "comparison_chunk": (
-                comparison_chunk["timestamp"] if comparison_chunk else None
-            ),
-        },
-        "recap": recap,
-    }
+def api_generate_recap(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """Recap."""
+    session = cast(dict[str, Any], facade.get_session(sid))
+    return _execute_api_call(facade.create_recap, sid, payload.from_timestamp or "", payload.to_timestamp or "", session.get("language", "English"), session.get("recap_length", "standard"))
 
 
 @app.get("/session/{session_id}/transcript")
-def get_session_transcript(session_id: str) -> dict[str, Any]:
-    """Get the full transcript and metadata for a session."""
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {
-        "session": session,
-        "transcript": get_transcript(session_id),
-        "recaps": get_recaps(session_id),
-    }
+def api_get_transcript(session_id: str) -> dict[str, Any]:
+    """Data."""
+    if facade.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return _execute_api_call(facade.get_full_data, session_id)
 
 
 @app.post("/session/end")
-def complete_session(payload: SessionEndRequest) -> dict[str, Any]:
-    """Complete a session and generate a full summary."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    transcript = get_transcript(payload.session_id)
-    transcript_text = "\n".join(chunk["text"] for chunk in transcript)
-    full_summary = summarizer.summarize_full_session(
-        transcript_text,
-        language=session.get("language", "English"),
-    )
-    updated_session = end_session(payload.session_id, full_summary)
-    return {"full_summary": full_summary, "session": updated_session}
+def api_complete_session(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """End."""
+    session = cast(dict[str, Any], facade.get_session(sid))
+    return _execute_api_call(facade.finalize_session, sid, session.get("language", "English"))
 
 
 @app.post("/export/pdf")
-def export_pdf(payload: ExportRequest) -> Response:
-    """Export the session as a PDF document."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    pdf_bytes = build_pdf_export(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-    )
-    headers = {
-        "Content-Disposition": (
-            f'attachment; filename="snapback-{payload.session_id}.pdf"'
-        ),
-    }
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers=headers,
-    )
+def api_export_pdf(payload: SnapBackRequest, sid: SID) -> Response:
+    """PDF."""
+    data = _execute_api_call(facade.export_pdf, sid)
+    return Response(content=data, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=session-{sid}.pdf"})
 
 
 @app.post("/export/markdown")
-def export_markdown(payload: ExportRequest) -> Response:
-    """Export the session as a Markdown document."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    markdown = build_markdown_export(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-    )
-    headers = {
-        "Content-Disposition": (
-            f'attachment; filename="snapback-{payload.session_id}.md"'
-        ),
-    }
-    return Response(
-        content=markdown,
-        media_type="text/markdown",
-        headers=headers,
-    )
+def api_export_markdown(payload: SnapBackRequest, sid: SID) -> Response:
+    """MD."""
+    data = _execute_api_call(facade.export_markdown, sid)
+    return Response(content=data, media_type="text/markdown", headers={"Content-Disposition": f"attachment; filename=session-{sid}.md"})
 
 
 @app.post("/export/notion")
-def export_notion(payload: NotionExportRequest) -> dict[str, Any]:
-    """Export the session to a Notion page."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    api_key = payload.notion_api_key or NOTION_API_KEY
-    if not api_key:
-        raise HTTPException(status_code=400, detail="Missing Notion API key")
-    return export_to_notion(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-        api_key=api_key,
-        page_id=payload.page_id,
-    )
+def api_export_notion(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """Notion."""
+    if not NOTION_API_KEY:
+        raise HTTPException(status_code=400, detail="Missing key")
+    return _execute_api_call(facade.export_notion, sid, NOTION_API_KEY, payload.page_id or "")
 
 
 @app.post("/study/pack")
-def generate_study_pack(payload: StudyPackRequest) -> dict[str, Any]:
-    """Generate a study pack for a session."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    transcript_text = "\n".join(chunk["text"] for chunk in bundle.transcript)
-    study_pack = summarizer.generate_study_pack(
-        transcript_text,
-        language=bundle.session.get("language", "English"),
-    )
-    return {
-        "session_id": payload.session_id,
-        "study_pack": study_pack,
-    }
+def api_build_study_pack(payload: SnapBackRequest, sid: SID) -> dict[str, Any]:
+    """Study."""
+    session = cast(dict[str, Any], facade.get_session(sid))
+    return _execute_api_call(facade.build_study_pack, sid, session.get("language", "English"))

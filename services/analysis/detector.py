@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -15,6 +15,10 @@ ALERT_PHRASES = [
     "pay attention",
     "this is critical",
 ]
+
+
+TranscriptChunk: TypeAlias = dict[Literal["text"], str] | dict[Literal["timestamp"], float]
+Alert: TypeAlias = dict[Literal["text"], str] | dict[Literal["timestamp"], float]
 
 
 def _normalize_text(text: str | None) -> str:
@@ -45,10 +49,10 @@ def detect_topic_shift(
 
 
 def detect_missed_alerts(
-    chunks: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    chunks: list[TranscriptChunk],
+) -> list[Alert]:
     """Identify chunks containing predefined alert phrases."""
-    alerts: list[dict[str, Any]] = []
+    alerts: list[Alert] = []
     for chunk in chunks:
         text_lower = chunk["text"].lower()
         for phrase in ALERT_PHRASES:

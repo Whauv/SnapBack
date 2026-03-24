@@ -7,10 +7,9 @@ import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias, cast, Mapping
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -29,22 +28,25 @@ def ensure_parent_dir() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+Session: TypeAlias = dict[str, Any]
+TranscriptChunk: TypeAlias = dict[str, Any]
+Recap: TypeAlias = dict[str, Any]
+AudioChunk: TypeAlias = dict[str, Any]
+SessionBundle: TypeAlias = dict[str, Any]
+
+
 @contextmanager
-def get_connection() -> Generator[sqlite3.Connection, None, None]:
-    """Provide a transactional scope around database operations."""
+def database_session() -> Generator[sqlite3.Connection, None, None]:
+    """Provide a transactional scope for sqlite."""
     ensure_parent_dir()
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    try:
+    with sqlite3.connect(DB_PATH) as connection:
+        connection.row_factory = sqlite3.Row
         yield connection
-        connection.commit()
-    finally:
-        connection.close()
 
 
 def init_db() -> None:
     """Initialize the database schema."""
-    with get_connection() as connection:
+    with database_session() as connection:
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -100,11 +102,11 @@ def create_session(
     mode: str,
     language: str,
     recap_length: str,
-) -> dict[str, Any]:
+) -> Session:
     """Create a new session."""
     session_id = str(uuid.uuid4())
     now = utc_now_iso()
-    with get_connection() as connection:
+    with database_session() as connection:
         connection.execute(
             """
             INSERT INTO sessions (
@@ -115,23 +117,27 @@ def create_session(
             """,
             (session_id, now, mode, language, recap_length, now, now),
         )
-    return get_session(session_id)
+    session = get_session(session_id)
+    if not session:
+        msg = f"Failed to create session {session_id}"
+        raise RuntimeError(msg)
+    return session
 
 
-def get_session(session_id: str) -> dict[str, Any] | None:
+def get_session(session_id: str) -> Session | None:
     """Get a session by ID."""
-    with get_connection() as connection:
+    with database_session() as connection:
         row = connection.execute(
             "SELECT * FROM sessions WHERE id = ?",
             (session_id,),
         ).fetchone()
-    return dict(row) if row else None
+    return cast(Session, dict(row)) if row else None
 
 
-def end_session(session_id: str, full_summary: str) -> dict[str, Any] | None:
+def end_session(session_id: str, full_summary: str) -> Session | None:
     """End a session with a full summary."""
     now = utc_now_iso()
-    with get_connection() as connection:
+    with database_session() as connection:
         connection.execute(
             """
             UPDATE sessions
@@ -147,10 +153,10 @@ def append_transcript_chunk(
     session_id: str,
     text: str,
     timestamp: str,
-) -> dict[str, Any]:
+) -> TranscriptChunk:
     """Append a transcript chunk to the session."""
     created_at = utc_now_iso()
-    with get_connection() as connection:
+    with database_session() as connection:
         cursor = connection.execute(
             """
             INSERT INTO transcript_chunks (session_id, text, timestamp, created_at)
@@ -167,12 +173,12 @@ def append_transcript_chunk(
             "SELECT * FROM transcript_chunks WHERE id = ?",
             (chunk_id,),
         ).fetchone()
-    return dict(row)
+    return cast(TranscriptChunk, dict(row))
 
 
-def get_transcript(session_id: str) -> list[dict[str, Any]]:
+def get_transcript(session_id: str) -> list[TranscriptChunk]:
     """Get the full transcript for the session."""
-    with get_connection() as connection:
+    with database_session() as connection:
         rows = connection.execute(
             """
             SELECT id, session_id, text, timestamp, created_at
@@ -182,16 +188,16 @@ def get_transcript(session_id: str) -> list[dict[str, Any]]:
             """,
             (session_id,),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [cast(TranscriptChunk, dict(row)) for row in rows]
 
 
 def get_transcript_window(
     session_id: str,
     from_timestamp: str,
     to_timestamp: str,
-) -> list[dict[str, Any]]:
+) -> list[TranscriptChunk]:
     """Get transcript chunks within the timestamp window."""
-    with get_connection() as connection:
+    with database_session() as connection:
         rows = connection.execute(
             """
             SELECT id, session_id, text, timestamp, created_at
@@ -203,12 +209,12 @@ def get_transcript_window(
             """,
             (session_id, from_timestamp, to_timestamp),
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [cast(TranscriptChunk, dict(row)) for row in rows]
 
 
-def get_last_chunk_before(session_id: str, timestamp: str) -> dict[str, Any] | None:
+def get_last_chunk_before(session_id: str, timestamp: str) -> TranscriptChunk | None:
     """Get the last transcript chunk before the given timestamp."""
-    with get_connection() as connection:
+    with database_session() as connection:
         row = connection.execute(
             """
             SELECT id, session_id, text, timestamp, created_at
@@ -220,12 +226,12 @@ def get_last_chunk_before(session_id: str, timestamp: str) -> dict[str, Any] | N
             """,
             (session_id, timestamp),
         ).fetchone()
-    return dict(row) if row else None
+    return cast(TranscriptChunk, dict(row)) if row else None
 
 
-def get_first_chunk_after(session_id: str, timestamp: str) -> dict[str, Any] | None:
+def get_first_chunk_after(session_id: str, timestamp: str) -> TranscriptChunk | None:
     """Get the first transcript chunk after the given timestamp."""
-    with get_connection() as connection:
+    with database_session() as connection:
         row = connection.execute(
             """
             SELECT id, session_id, text, timestamp, created_at
@@ -237,7 +243,7 @@ def get_first_chunk_after(session_id: str, timestamp: str) -> dict[str, Any] | N
             """,
             (session_id, timestamp),
         ).fetchone()
-    return dict(row) if row else None
+    return cast(TranscriptChunk, dict(row)) if row else None
 
 
 def save_recap(
@@ -249,11 +255,11 @@ def save_recap(
     keywords: list[str],
     topic_shift_detected: bool,
     missed_alerts: list[dict[str, Any]],
-) -> dict[str, Any]:
+) -> Recap:
     # ruff: noqa: PLR0913
-    """Save a recap for the session."""
+    """Save a recap of a session window with full type metadata."""
     created_at = utc_now_iso()
-    with get_connection() as connection:
+    with database_session() as connection:
         cursor = connection.execute(
             """
             INSERT INTO recaps (
@@ -278,12 +284,15 @@ def save_recap(
             "SELECT * FROM recaps WHERE id = ?",
             (recap_id,),
         ).fetchone()
-    return hydrate_recap(dict(row))
+        if not row:
+            msg = f"Failed to retrieve saved recap {recap_id}"
+            raise RuntimeError(msg)
+    return hydrate_recap(cast(Mapping[str, Any], row))
 
 
-def get_recaps(session_id: str) -> list[dict[str, Any]]:
+def get_recaps(session_id: str) -> list[Recap]:
     """Get all recaps for the session."""
-    with get_connection() as connection:
+    with database_session() as connection:
         rows = connection.execute(
             """
             SELECT * FROM recaps
@@ -295,12 +304,13 @@ def get_recaps(session_id: str) -> list[dict[str, Any]]:
     return [hydrate_recap(dict(row)) for row in rows]
 
 
-def hydrate_recap(row: dict[str, Any]) -> dict[str, Any]:
-    """Hydrate a recap row from the database."""
-    row["keywords"] = json.loads(row.pop("keywords_json", "[]"))
-    row["topic_shift_detected"] = bool(row["topic_shift_detected"])
-    row["missed_alerts"] = json.loads(row.pop("missed_alerts_json", "[]"))
-    return row
+def hydrate_recap(row: Mapping[str, Any]) -> Recap:
+    """Hydrate a recap row from the database with strict mapping."""
+    data = dict(row)
+    data["keywords"] = json.loads(data.pop("keywords_json", "[]"))
+    data["topic_shift_detected"] = bool(data["topic_shift_detected"])
+    data["missed_alerts"] = json.loads(data.pop("missed_alerts_json", "[]"))
+    return cast(Recap, data)
 
 
 def save_audio_chunk(
@@ -311,11 +321,11 @@ def save_audio_chunk(
     file_path: str,
     timestamp: str,
     source: str = "extension",
-) -> dict[str, Any]:
+) -> AudioChunk:
     # ruff: noqa: PLR0913
     """Save an audio chunk for the session."""
     created_at = utc_now_iso()
-    with get_connection() as connection:
+    with database_session() as connection:
         cursor = connection.execute(
             """
             INSERT INTO audio_chunks (
@@ -339,14 +349,14 @@ def save_audio_chunk(
             "SELECT * FROM audio_chunks WHERE id = ?",
             (chunk_id,),
         ).fetchone()
-    return dict(row)
+    return cast(AudioChunk, dict(row))
 
 
-def delete_sessions_older_than(hours: int) -> int:
+def purge_old_data(hours: int) -> int:
     """Delete sessions and associated data older than the specified hours."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_iso = cutoff.isoformat()
-    with get_connection() as connection:
+    with database_session() as connection:
         session_rows = connection.execute(
             """
             SELECT sessions.id AS id, audio_chunks.file_path AS file_path
@@ -382,28 +392,16 @@ def delete_sessions_older_than(hours: int) -> int:
         )
     for audio_path in audio_paths:
         audio_path.unlink(missing_ok=True)
-        parent = audio_path.parent
-        if parent.name:
-            shutil.rmtree(parent, ignore_errors=True)
+        shutil.rmtree(audio_path.parent, ignore_errors=True)
     return len(session_ids)
-
-
-@dataclass
-class SessionBundle:
-    """A bundle of all information related to a session."""
-
-    session: dict[str, Any]
-    transcript: list[dict[str, Any]]
-    recaps: list[dict[str, Any]]
 
 
 def get_session_bundle(session_id: str) -> SessionBundle | None:
     """Retrieve all data associated with a session ID as a SessionBundle."""
     session = get_session(session_id)
-    if not session:
-        return None
-    return SessionBundle(
-        session=session,
-        transcript=get_transcript(session_id),
-        recaps=get_recaps(session_id),
-    )
+    if session:
+        return {
+            "session": session,
+            "transcript": get_transcript(session_id),
+            "recaps": get_recaps(session_id),
+        }

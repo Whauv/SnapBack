@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, TypeAlias, TypeVar, cast
 
 from groq import Groq
 
@@ -18,25 +18,38 @@ SUMMARY_SYSTEM_PROMPT = (
 )
 
 
-def _safe_json_array(text: str) -> list[str]:
-    """Safely parse a JSON array of strings."""
+T = TypeVar("T")
+
+
+Flashcard: TypeAlias = dict[str, Any]
+QuizQuestion: TypeAlias = dict[str, Any]
+StudyPack: TypeAlias = dict[str, Any]
+
+
+def _safe_json_parse(text: str, default: T) -> T:
+    """Safely parse a JSON string with a default fallback."""
     try:
         data = json.loads(text)
-        if isinstance(data, list):
-            return [str(item).strip() for item in data if str(item).strip()]
+        if isinstance(data, (list, dict)):
+            return cast(T, data)
     except json.JSONDecodeError:
         pass
+    return default
+
+
+def _safe_json_array(text: str) -> list[str]:
+    """Safely parse a JSON array of strings."""
+    data = _safe_json_parse(text, [])
+    if isinstance(data, list):
+        return [str(item).strip() for item in data if str(item).strip()]
     return []
 
 
 def _safe_json_object(text: str) -> dict[str, Any]:
     """Safely parse a JSON object."""
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
+    data = _safe_json_parse(text, {})
+    if isinstance(data, dict):
+        return data
     return {}
 
 
@@ -147,7 +160,7 @@ class GroqSummarizer:
         self,
         transcript_text: str,
         language: str = "English",
-    ) -> dict[str, Any]:
+    ) -> StudyPack:
         """Generate a study pack (outline, flashcards, quiz) from transcript."""
         if not transcript_text.strip():
             return self._fallback_study_pack(transcript_text)
@@ -174,41 +187,41 @@ class GroqSummarizer:
         parsed = _safe_json_object(response)
         if not parsed:
             return self._fallback_study_pack(transcript_text)
-        return {
-            "outline": [
+        return StudyPack(
+            outline=[
                 str(item).strip()
                 for item in parsed.get("outline", [])
                 if str(item).strip()
             ],
-            "flashcards": [
-                {
-                    "question": str(item.get("question", "")).strip(),
-                    "answer": str(item.get("answer", "")).strip(),
-                }
+            flashcards=[
+                Flashcard(
+                    question=str(item.get("question", "")).strip(),
+                    answer=str(item.get("answer", "")).strip(),
+                )
                 for item in parsed.get("flashcards", [])
                 if (
                     str(item.get("question", "")).strip()
                     and str(item.get("answer", "")).strip()
                 )
             ],
-            "quiz_questions": [
-                {
-                    "question": str(item.get("question", "")).strip(),
-                    "answer": str(item.get("answer", "")).strip(),
-                    "explanation": str(item.get("explanation", "")).strip(),
-                }
+            quiz_questions=[
+                QuizQuestion(
+                    question=str(item.get("question", "")).strip(),
+                    answer=str(item.get("answer", "")).strip(),
+                    explanation=str(item.get("explanation", "")).strip(),
+                )
                 for item in parsed.get("quiz_questions", [])
                 if (
                     str(item.get("question", "")).strip()
                     and str(item.get("answer", "")).strip()
                 )
             ],
-            "review_priorities": [
+            review_priorities=[
                 str(item).strip()
                 for item in parsed.get("review_priorities", [])
                 if str(item).strip()
             ],
-        }
+        )
 
     @staticmethod
     def _fallback_summary(transcript_text: str, max_sentences: int = 3) -> str:
@@ -272,7 +285,7 @@ class GroqSummarizer:
         ranked = sorted(frequency.items(), key=lambda item: (-item[1], item[0]))
         return [word for word, _ in ranked[:5]]
 
-    def _fallback_study_pack(self, transcript_text: str) -> dict[str, Any]:
+    def _fallback_study_pack(self, transcript_text: str) -> StudyPack:
         """Generate a basic study pack based on term frequency and summary."""
         summary = self._fallback_summary(
             transcript_text,
@@ -283,35 +296,35 @@ class GroqSummarizer:
             f"Review concept: {keyword.title()}" for keyword in keywords[:4]
         ] or [summary]
         flashcards = [
-            {
-                "question": (f"What is the significance of {keyword} in this lecture?"),
-                "answer": (
+            Flashcard(
+                question=(f"What is the significance of {keyword} in this lecture?"),
+                answer=(
                     f"{keyword.title()} was identified as a recurring concept "
                     f"in the session transcript."
                 ),
-            }
+            )
             for keyword in keywords[:4]
         ]
         quiz_questions = [
-            {
-                "question": f"Explain {keyword} in the context of this lecture.",
-                "answer": (
+            QuizQuestion(
+                question=f"Explain {keyword} in the context of this lecture.",
+                answer=(
                     f"{keyword.title()} appears to be one of the important "
                     f"recurring ideas discussed."
                 ),
-                "explanation": (
+                explanation=(
                     "This fallback prompt is based on transcript term "
                     "frequency rather than model reasoning."
                 ),
-            }
+            )
             for keyword in keywords[:3]
         ]
         review_priorities = [keyword.title() for keyword in keywords[:3]] or [
             "Review the lecture summary carefully.",
         ]
-        return {
-            "outline": outline[:5],
-            "flashcards": flashcards,
-            "quiz_questions": quiz_questions,
-            "review_priorities": review_priorities,
-        }
+        return StudyPack(
+            outline=outline[:5],
+            flashcards=flashcards,
+            quiz_questions=quiz_questions,
+            review_priorities=review_priorities,
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+from contextlib import closing
 import json
 import logging
 import os
@@ -15,6 +16,7 @@ import time
 import wave
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
 from pathlib import Path
 
 import pyaudio
@@ -44,6 +46,8 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+TranscriptChunk: TypeAlias = dict[str, Any]
+Alert: TypeAlias = dict[str, Any]
 @dataclass
 class TranscriptionConfig:
     """Configuration for SnapBack transcription."""
@@ -98,61 +102,64 @@ class SnapBackTranscriptionClient:
         """Initialize the transcription client with the given configuration."""
         self.config = config
         self._ws: websocket.WebSocketApp | None = None
-        self._stream_thread: threading.Thread | None = None
-        self._audio_thread: threading.Thread | None = None
-        self._local_thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
-        self._connected_event = threading.Event()
-        self._session_lock = threading.Lock()
         self._session_id: str | None = None
-        self._requests = requests.Session()
+        self._req_session: requests.Session | None = None
+        self._threads: dict[str, threading.Thread | None] = {}
+        self._events: dict[str, threading.Event] = {
+            "stop": threading.Event(),
+            "connected": threading.Event(),
+        }
+        self._locks: dict[str, threading.Lock] = {"session": threading.Lock()}
+
+    @property
+    def _requests(self) -> requests.Session:
+        if self._req_session is None:
+            self._req_session = requests.Session()
+        return self._req_session
 
     def start_transcription(self, session_id: str) -> None:
         """Start a transcription session for the given ID."""
         self.stop_transcription()
-        with self._session_lock:
+        with self._locks["session"]:
             self._session_id = session_id
-            self._stop_event.clear()
-            self._connected_event.clear()
+            self._events["stop"].clear()
+            self._events["connected"].clear()
 
         if self.config.mode == "local":
             self._ensure_whisper_binary()
             self._ensure_whisper_model()
-            self._local_thread = threading.Thread(
-                target=self._run_local_whisper_loop,
-                daemon=True,
-            )
-            self._local_thread.start()
+            t = threading.Thread(target=self._run_local_whisper_loop, daemon=True)
+            self._threads["local"] = t
+            t.start()
             return
 
         if not self.config.assemblyai_api_key:
             msg = "ASSEMBLYAI_API_KEY is required for cloud transcription mode."
             raise RuntimeError(msg)
 
-        self._stream_thread = threading.Thread(
+        t_stream = threading.Thread(
             target=self._run_cloud_stream_loop,
             daemon=True,
         )
-        self._audio_thread = threading.Thread(
+        t_audio = threading.Thread(
             target=self._capture_microphone_stream,
             daemon=True,
         )
-        self._stream_thread.start()
-        self._audio_thread.start()
+        self._threads["stream"] = t_stream
+        self._threads["audio"] = t_audio
+        t_stream.start()
+        t_audio.start()
 
     def stop_transcription(self) -> None:
         """Stop the current transcription session and clean up resources."""
-        self._stop_event.set()
-        self._connected_event.clear()
+        self._events["stop"].set()
+        self._events["connected"].clear()
         if self._ws:
             with contextlib.suppress(Exception):
                 self._ws.close()
-        self._join_thread(self._audio_thread)
-        self._join_thread(self._stream_thread)
-        self._join_thread(self._local_thread)
-        self._audio_thread = None
-        self._stream_thread = None
-        self._local_thread = None
+        for name, thread in list(self._threads.items()):
+            self._join_thread(thread)
+            self._threads[name] = None
         self._ws = None
 
     def _join_thread(self, thread: threading.Thread | None) -> None:
@@ -161,8 +168,8 @@ class SnapBackTranscriptionClient:
 
     def _run_cloud_stream_loop(self) -> None:
         backoff = self.config.reconnect_backoff_seconds
-        while not self._stop_event.is_set():
-            self._connected_event.clear()
+        while not self._events["stop"].is_set():
+            self._events["connected"].clear()
             self._ws = websocket.WebSocketApp(
                 ASSEMBLYAI_WS_URL,
                 header=[f"Authorization: {self.config.assemblyai_api_key}"],
@@ -172,46 +179,53 @@ class SnapBackTranscriptionClient:
                 on_error=self._on_error,
             )
             self._ws.run_forever(ping_interval=5, ping_timeout=3)
-            if self._stop_event.is_set():
+            if self._events["stop"].is_set():
                 break
             time.sleep(backoff)
             backoff = min(backoff * 2, self.config.max_reconnect_backoff_seconds)
 
     def _capture_microphone_stream(self) -> None:
-        audio = pyaudio.PyAudio()
-        stream = audio.open(
-            format=pyaudio.paInt16,
-            channels=CHANNELS,
-            rate=SAMPLE_RATE,
-            input=True,
-            frames_per_buffer=FRAMES_PER_BUFFER,
-            input_device_index=self.config.microphone_device_index,
-        )
-        try:
-            while not self._stop_event.is_set():
-                chunk = stream.read(FRAMES_PER_BUFFER, exception_on_overflow=False)
-                if not self._connected_event.wait(timeout=0.5):
-                    continue
-                if self._ws and self._ws.sock and self._ws.sock.connected:
-                    try:
-                        audio_data = base64.b64encode(chunk).decode("utf-8")
-                        self._ws.send(json.dumps({"audio_data": audio_data}))
-                    except Exception:
-                        logger.exception("AssemblyAI send failed")
-                        self._connected_event.clear()
-        finally:
-            stream.stop_stream()
-            stream.close()
-            audio.terminate()
+        with closing(pyaudio.PyAudio()) as audio:
+            with closing(
+                audio.open(
+                    format=pyaudio.paInt16,
+                    channels=CHANNELS,
+                    rate=SAMPLE_RATE,
+                    input=True,
+                    frames_per_buffer=FRAMES_PER_BUFFER,
+                    input_device_index=self.config.microphone_device_index,
+                ),
+            ) as stream:
+                try:
+                    while not self._events["stop"].is_set():
+                        chunk = stream.read(
+                            FRAMES_PER_BUFFER,
+                            exception_on_overflow=False,
+                        )
+                        if not self._events["connected"].wait(timeout=0.5):
+                            continue
+                        self._send_to_websocket(chunk)
+                except (OSError, RuntimeError):
+                    logger.exception("Microphone stream error")
+
+    def _send_to_websocket(self, chunk: bytes) -> None:
+        """Send a chunk of audio to the cloud WebSocket."""
+        if self._ws and self._ws.sock and self._ws.sock.connected:
+            try:
+                audio_data = base64.b64encode(chunk).decode("utf-8")
+                self._ws.send(json.dumps({"audio_data": audio_data}))
+            except (websocket.WebSocketException, OSError):
+                logger.exception("AssemblyAI send failed")
+                self._events["connected"].clear()
 
     def _on_open(self, _ws: websocket.WebSocketApp) -> None:
-        self._connected_event.set()
+        self._events["connected"].set()
 
     def _on_message(self, _ws: websocket.WebSocketApp, message: str) -> None:
         payload = json.loads(message)
         message_type = payload.get("message_type")
         if message_type == "SessionBegins":
-            self._connected_event.set()
+            self._events["connected"].set()
             return
         if message_type == "FinalTranscript" and payload.get("text"):
             self._post_transcript(payload["text"])
@@ -225,7 +239,7 @@ class SnapBackTranscriptionClient:
         status_code: int,
         close_msg: str,
     ) -> None:
-        self._connected_event.clear()
+        self._events["connected"].clear()
         logger.info(
             "AssemblyAI socket closed: code=%s message=%s",
             status_code,
@@ -233,11 +247,11 @@ class SnapBackTranscriptionClient:
         )
 
     def _on_error(self, _ws: websocket.WebSocketApp, error: object) -> None:
-        self._connected_event.clear()
+        self._events["connected"].clear()
         logger.error("AssemblyAI WebSocket error: %s", error)
 
     def _post_transcript(self, text: str) -> None:
-        with self._session_lock:
+        with self._locks["session"]:
             session_id = self._session_id
         if not session_id:
             return
@@ -270,32 +284,40 @@ class SnapBackTranscriptionClient:
                 return
 
     def _run_local_whisper_loop(self) -> None:
-        audio = pyaudio.PyAudio()
-        stream = audio.open(
-            format=pyaudio.paInt16,
-            channels=CHANNELS,
-            rate=SAMPLE_RATE,
-            input=True,
-            frames_per_buffer=FRAMES_PER_BUFFER,
-            input_device_index=self.config.microphone_device_index,
-        )
-        try:
-            while not self._stop_event.is_set():
-                frames: list[bytes] = []
-                started_at = time.monotonic()
-                while (
-                    time.monotonic() - started_at < self.config.local_segment_seconds
-                    and not self._stop_event.is_set()
-                ):
-                    frames.append(
-                        stream.read(FRAMES_PER_BUFFER, exception_on_overflow=False),
-                    )
-                if frames:
-                    self._transcribe_local_segment(frames)
-        finally:
-            stream.stop_stream()
-            stream.close()
-            audio.terminate()
+        with closing(pyaudio.PyAudio()) as audio:
+            with closing(
+                audio.open(
+                    format=pyaudio.paInt16,
+                    channels=CHANNELS,
+                    rate=SAMPLE_RATE,
+                    input=True,
+                    frames_per_buffer=FRAMES_PER_BUFFER,
+                    input_device_index=self.config.microphone_device_index,
+                ),
+            ) as stream:
+                try:
+                    while not self._events["stop"].is_set():
+                        frames = self._collect_audio_frames(stream)
+                        if frames:
+                            self._transcribe_local_segment(frames)
+                except (OSError, RuntimeError):
+                    logger.exception("Local Whisper audio loop error")
+
+    def _collect_audio_frames(self, stream: pyaudio.Stream) -> list[bytes]:
+        """Collect audio frames for a single segment."""
+        frames: list[bytes] = []
+        started_at = time.monotonic()
+        while (
+            time.monotonic() - started_at < self.config.local_segment_seconds
+            and not self._events["stop"].is_set()
+        ):
+            frames.append(
+                stream.read(
+                    FRAMES_PER_BUFFER,
+                    exception_on_overflow=False,
+                ),
+            )
+        return frames
 
     def _transcribe_local_segment(self, frames: list[bytes]) -> None:
         temp_dir = Path(tempfile.mkdtemp(prefix="snapback-whisper-"))
@@ -330,21 +352,34 @@ class SnapBackTranscriptionClient:
         raise RuntimeError(msg)
 
     def _ensure_whisper_model(self) -> None:
-        model_path = Path(self.config.whisper_model_path)
-        if model_path.exists():
-            return
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        url = self.config.whisper_model_url
-        with self._requests.get(
-            url,
-            timeout=120,
-            stream=True,
-        ) as response:
+        """Ensure the whisper model is available locally."""
+        model_path = ROOT_DIR / ".whisper" / f"ggml-{self.config.whisper_model}.bin"
+        if not model_path.exists():
+            self._download_whisper_model(model_path)
+
+    def _download_whisper_model(self, target_path: Path) -> None:
+        """Download the whisper model from HuggingFace."""
+        url = (
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+            f"ggml-{self.config.whisper_model}.bin"
+        )
+        logger.info("Downloading whisper model from %s...", url)
+        try:
+            response = self._requests.get(url, stream=True, timeout=300)
             response.raise_for_status()
-            with model_path.open("wb") as handle:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        handle.write(chunk)
+            self._save_model_chunks(target_path, response)
+            logger.info("Whisper model downloaded successfully.")
+        except requests.RequestException:
+            logger.exception("Failed to download whisper model")
+            raise
+
+    def _save_model_chunks(self, path: Path, response: requests.Response) -> None:
+        """Save model response chunks to disk."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
 
     def _transcribe_with_whisper(self, wav_path: Path, txt_path: Path) -> str:
         command = [

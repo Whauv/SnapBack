@@ -10,13 +10,14 @@ from notion_client import Client as NotionClient
 
 if typing.TYPE_CHECKING:
     from typing import Any
+    from services.storage.database import SessionBundle, Recap, TranscriptChunk
 
 
-def build_markdown_export(bundle: dict[str, Any]) -> str:
+def build_markdown_export(bundle: SessionBundle) -> str:
     """Build a markdown string from the session bundle."""
     session = bundle["session"]
-    transcript = bundle["transcript"]
-    recaps = bundle["recaps"]
+    transcript: list[TranscriptChunk] = bundle["transcript"]
+    recaps: list[Recap] = bundle["recaps"]
 
     lines = [
         f"# SnapBack Session {session['id']}",
@@ -59,11 +60,11 @@ def build_markdown_export(bundle: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def build_pdf_export(bundle: dict[str, Any]) -> bytes:
+def build_pdf_export(bundle: SessionBundle) -> bytes:
     """Build a PDF byte stream from the session bundle."""
     session = bundle["session"]
-    transcript = bundle["transcript"]
-    recaps = bundle["recaps"]
+    transcript: list[TranscriptChunk] = bundle["transcript"]
+    recaps: list[Recap] = bundle["recaps"]
 
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -120,15 +121,15 @@ def build_pdf_export(bundle: dict[str, Any]) -> bytes:
 
 
 def export_to_notion(
-    bundle: dict[str, Any],
+    bundle: SessionBundle,
     api_key: str,
     page_id: str,
 ) -> dict[str, Any]:
     """Export the session bundle to a Notion page."""
     client = NotionClient(auth=api_key)
     session = bundle["session"]
-    transcript = bundle["transcript"]
-    recaps = bundle["recaps"]
+    transcript: list[TranscriptChunk] = bundle["transcript"]
+    recaps: list[Recap] = bundle["recaps"]
 
     children: list[dict[str, Any]] = [
         {
