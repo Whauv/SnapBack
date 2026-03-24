@@ -50,9 +50,7 @@ def build_markdown_export(bundle: SessionBundle) -> str:
 
     lines.extend(["## Transcript", ""])
     if transcript:
-        lines.extend(
-            f"- [{chunk.timestamp}] {chunk.text}" for chunk in transcript
-        )
+        lines.extend(f"- [{chunk.timestamp}] {chunk.text}" for chunk in transcript)
     else:
         lines.append("No transcript chunks captured.")
 
@@ -87,9 +85,13 @@ def build_pdf_export(bundle: SessionBundle) -> bytes:
 
     if recaps:
         for recap in recaps:
-            pdf.multi_cell(0, 7, fill(f"{recap.from_timestamp} to {recap.to_timestamp}", width=95))
+            pdf.multi_cell(
+                0, 7, fill(f"{recap.from_timestamp} to {recap.to_timestamp}", width=95)
+            )
             pdf.multi_cell(0, 7, fill(recap.summary, width=95))
-            pdf.multi_cell(0, 7, fill(f"Keywords: {recap.key_str() or 'None'}", width=95))
+            pdf.multi_cell(
+                0, 7, fill(f"Keywords: {recap.key_str() or 'None'}", width=95)
+            )
             pdf.ln(2)
     else:
         pdf.multi_cell(0, 7, "No recaps generated yet.")
@@ -126,31 +128,82 @@ def export_to_notion(
             "object": "block",
             "type": "paragraph",
             "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": session.full_summary or "None."}}],
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {"content": session.full_summary or "None."},
+                    }
+                ],
             },
         },
     ]
 
     if recaps:
-        children.append({"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"type": "text", "text": {"content": "Recap History"}}]}})
+        children.append(
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": "Recap History"}}
+                    ]
+                },
+            }
+        )
         children.extend(
             {
                 "object": "block",
                 "type": "bulleted_list_item",
                 "bulleted_list_item": {
-                    "rich_text": [{"type": "text", "text": {"content": f"{r.from_timestamp} to {r.to_timestamp}: {r.summary}"}}],
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": f"{r.from_timestamp} to {r.to_timestamp}: {r.summary}"
+                            },
+                        }
+                    ],
                 },
             }
             for r in recaps
         )
 
-    children.append({"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"type": "text", "text": {"content": "Transcript"}}]}})
+    children.append(
+        {
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [{"type": "text", "text": {"content": "Transcript"}}]
+            },
+        }
+    )
     p_view = "\n".join(f"[{c.timestamp}] {c.text}" for c in transcript[:50])
-    children.append({"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": p_view or "No transcript."}}]}})
+    children.append(
+        {
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [
+                    {"type": "text", "text": {"content": p_view or "No transcript."}}
+                ]
+            },
+        }
+    )
 
     page = client.pages.create(
         parent={"page_id": page_id},
-        properties={"title": {"title": [{"type": "text", "text": {"content": f"SnapBack Session {session.start_timestamp[:10]}"}}]}},
+        properties={
+            "title": {
+                "title": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": f"SnapBack Session {session.start_timestamp[:10]}"
+                        },
+                    }
+                ]
+            }
+        },
         children=children,
     )
     return {"page_id": str(page["id"]), "url": str(page["url"])}

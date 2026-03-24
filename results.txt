@@ -1,8 +1,26 @@
 deslop scan root: .
-Source files discovered: 21
-Source files analyzed: 21
-Functions fingerprinted: 126
-Findings: 0
-Index summary: packages=21 symbols=143 imports=112
+Source files discovered: 20
+Source files analyzed: 20
+Functions fingerprinted: 133
+Findings: 16
+Index summary: packages=20 symbols=157 imports=115
 Parse failures: 0
-Timings: discover=1ms parse=17ms index=0ms heuristics=0ms total=19ms
+Timings: discover=0ms parse=16ms index=0ms heuristics=1ms total=19ms
+
+Findings:
+  - ./apps/api/main.py:1 module accumulates enough imports, declarations, and behavior to look monolithic [monolithic_module]
+  - ./apps/api/main.py:1 file imports heavy ecosystems that show little local evidence of need [unrelated_heavy_import]
+  - ./apps/api/main.py:18 class SessionStartRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:25 class TranscriptChunkRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:32 class RecapRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:39 class SessionEndRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:44 class ExportRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:49 class AudioChunkRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:59 class NotionExportRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:66 class StudyPackRequest looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:71 class APIStatusResponse looks like a very thin wrapper that may be over-abstracted [over_abstracted_wrapper]
+  - ./apps/api/main.py:115 function ingest_audio_chunk catches a broad exception without narrowing the failure type [broad_exception_handler]
+  - ./services/analysis/engine.py:1 module accumulates enough imports, declarations, and behavior to look monolithic [monolithic_module]
+  - ./services/facade/api_gateway.py:1 module accumulates enough imports, declarations, and behavior to look monolithic [monolithic_module]
+  - ./services/storage/database.py:1 module accumulates enough imports, declarations, and behavior to look monolithic [monolithic_module]
+  - ./services/transcription/transcription_client.py:1 module accumulates enough imports, declarations, and behavior to look monolithic [monolithic_module]

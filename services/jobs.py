@@ -6,6 +6,7 @@ import os
 from apscheduler.schedulers.background import BackgroundScheduler
 from services.storage.database import SnapBackStorage
 
+
 def bootstrap_system() -> BackgroundScheduler:
     """Initialize database and schedule retention tasks."""
     store = SnapBackStorage()
@@ -13,6 +14,8 @@ def bootstrap_system() -> BackgroundScheduler:
 
     scheduler = BackgroundScheduler()
     hours = int(os.getenv("AUTO_DELETE_AFTER_HOURS", "24"))
-    scheduler.add_job(lambda: store.purge_data(hours), "interval", hours=1, name="data_retention")
+    scheduler.add_job(
+        lambda: store.purge_data(hours), "interval", hours=1, name="data_retention"
+    )
     scheduler.start()
     return scheduler

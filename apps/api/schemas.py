@@ -4,8 +4,10 @@ from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
+
 class SnapBackRequest(BaseModel):
     """Universal request model for all session-related operations."""
+
     session_id: str | None = None
     mode: str = Field(default="cloud")
     language: str = Field(default="English")
