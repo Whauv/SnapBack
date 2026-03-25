@@ -1,8 +1,8 @@
-deslop scan root: .
-Source files discovered: 20
-Source files analyzed: 20
-Functions fingerprinted: 145
+deslop scan root: /home/chinmay/ChinmayPersonalProjects/SnapBack
+Source files discovered: 21
+Source files analyzed: 21
+Functions fingerprinted: 167
 Findings: 0
-Index summary: packages=20 symbols=163 imports=117
+Index summary: packages=21 symbols=186 imports=123
 Parse failures: 0
-Timings: discover=1ms parse=22ms index=0ms heuristics=2ms total=26ms
+Timings: discover=0ms parse=23ms index=0ms heuristics=4ms total=29ms

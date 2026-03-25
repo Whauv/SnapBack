@@ -22,6 +22,18 @@ ALERT_PHRASES = [
 MAX_SUMMARY_SENTENCES = 4
 MIN_FLASHCARD_QUESTION_LENGTH = 10
 MIN_FLASHCARD_ANSWER_LENGTH = 5
+GROQ_REQUEST_TIMEOUT_SECONDS = 10.0
+GROQ_MAX_RETRIES = 2
+STUDY_PACK_OUTLINE_KEY = "outline"
+STUDY_PACK_FLASHCARDS_KEY = "flashcards"
+STUDY_PACK_QUIZ_QUESTIONS_KEY = "quiz_questions"
+STUDY_PACK_REVIEW_PRIORITIES_KEY = "review_priorities"
+STUDY_PACK_ITEM_QUESTION_KEY = "question"
+STUDY_PACK_PROMPT = (
+    "Return JSON: outline(strings), flashcards(question, answer), "
+    "quiz_questions(question, answer, explanation), "
+    "review_priorities(strings)."
+)
 SUMMARY_SYSTEM_PROMPT = (
     "You are a student assistant. Given a segment of a lecture transcript, "
     "generate a 2-3 sentence summary that helps a returning student quickly "
@@ -172,7 +184,15 @@ class AnalysisEngine:
         model: str = "llama-3.3-70b-versatile",
     ) -> None:
         """Init."""
-        self.client = Groq(api_key=key) if key else None
+        self.client = (
+            Groq(
+                api_key=key,
+                timeout=GROQ_REQUEST_TIMEOUT_SECONDS,
+                max_retries=GROQ_MAX_RETRIES,
+            )
+            if key
+            else None
+        )
         self.model = model
 
     def _chat(self, sys: str, usr: str, temp: float = 0.2) -> str:
@@ -232,29 +252,27 @@ class AnalysisEngine:
         if not text.strip() or not self.client:
             return self._fallback_study_pack(text)
 
-        p = (
-            f"Language: {lang}\n"
-            "Return JSON: outline(strings), flashcards(question, answer), "
-            "quiz_questions(question, answer, explanation), "
-            f"review_priorities(strings).\n\nTranscript:\n{text}"
-        )
+        p = f"Language: {lang}\n{STUDY_PACK_PROMPT}\n\nTranscript:\n{text}"
         d = _safe_parse(self._chat("Return ONLY valid JSON.", p), {})
         if not d:
             return self._fallback_study_pack(text)
 
         return EngineStudyPack(
-            outline=cast("list[str]", d.get("outline", [])),
+            outline=cast("list[str]", d.get(STUDY_PACK_OUTLINE_KEY, [])),
             flashcards=[
                 EngineFlashcard(**f)
-                for f in d.get("flashcards", [])
-                if isinstance(f, dict) and "question" in f
+                for f in d.get(STUDY_PACK_FLASHCARDS_KEY, [])
+                if isinstance(f, dict) and STUDY_PACK_ITEM_QUESTION_KEY in f
             ],
             quiz_questions=[
                 EngineQuizQuestion(**q)
-                for q in d.get("quiz_questions", [])
-                if isinstance(q, dict) and "question" in q
+                for q in d.get(STUDY_PACK_QUIZ_QUESTIONS_KEY, [])
+                if isinstance(q, dict) and STUDY_PACK_ITEM_QUESTION_KEY in q
             ],
-            review_priorities=cast("list[str]", d.get("review_priorities", [])),
+            review_priorities=cast(
+                "list[str]",
+                d.get(STUDY_PACK_REVIEW_PRIORITIES_KEY, []),
+            ),
         )
 
     @staticmethod

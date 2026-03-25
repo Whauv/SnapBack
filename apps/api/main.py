@@ -24,21 +24,26 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
+router = fastapi.APIRouter()
+
+
 def _attachment_headers(session_id: str, extension: str) -> dict[str, str]:
     content_disposition = f'attachment; filename="snapback-{session_id}.{extension}"'
     return {"Content-Disposition": content_disposition}
 
 
-def create_app() -> fastapi.FastAPI:  # noqa: C901
-    """Create and configure the FastAPI application."""
+@asynccontextmanager
+async def _lifespan(_app: fastapi.FastAPI) -> AsyncIterator[None]:
+    sys_manager = bootstrap_system()
+    yield
+    sys_manager.shutdown(wait=False)
 
-    @asynccontextmanager
-    async def lifespan(_app: fastapi.FastAPI) -> AsyncIterator[None]:
-        sys_manager = bootstrap_system()
-        yield
-        sys_manager.shutdown(wait=False)
 
-    app = fastapi.FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
+def _build_http_app() -> fastapi.FastAPI:
+    return fastapi.FastAPI(title="SnapBack API", version="0.1.0", lifespan=_lifespan)
+
+
+def _configure_cors(app: fastapi.FastAPI) -> None:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -47,84 +52,116 @@ def create_app() -> fastapi.FastAPI:  # noqa: C901
         allow_headers=["*"],
     )
 
-    @app.get("/health", response_model=SnapBackResponse)
-    def health_check() -> SnapBackResponse:
-        return SnapBackResponse.health()
 
-    @app.post("/session/start", response_model=SnapBackResponse)
-    def start_session(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_start(dict(gw.start_op(*payload.start_args())))
+def _register_routes(app: fastapi.FastAPI) -> None:
+    app.include_router(router)
 
-    @app.post("/session/transcript", response_model=SnapBackResponse)
-    def ingest_transcript(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_transcript(
-            dict(gw.ingest_op(*payload.transcript_args())),
-        )
 
-    @app.post("/session/audio-chunk", response_model=SnapBackResponse)
-    def ingest_audio_chunk(payload: AudioChunkRequest) -> SnapBackResponse:
-        try:
-            (
+@router.get("/health", response_model=SnapBackResponse)
+def health_check() -> SnapBackResponse:
+    """Health check endpoint returning service status."""
+    return SnapBackResponse.health()
+
+
+@router.post("/session/start", response_model=SnapBackResponse)
+def start_session(payload: SessionRequest) -> SnapBackResponse:
+    """Start a new session with provided parameters."""
+    return SnapBackResponse._from_start(dict(gw.start_op(*payload.start_args())))
+
+
+@router.post("/session/transcript", response_model=SnapBackResponse)
+def ingest_transcript(payload: SessionRequest) -> SnapBackResponse:
+    """Ingest a transcript segment for a session."""
+    return SnapBackResponse._from_transcript(
+        dict(gw.ingest_op(*payload.transcript_args())),
+    )
+
+
+@router.post("/session/audio-chunk", response_model=SnapBackResponse)
+def ingest_audio_chunk(payload: AudioChunkRequest) -> SnapBackResponse:
+    """Receive and persist an audio chunk for a session."""
+    try:
+        (
+            session_id,
+            chunk_index,
+            mime_type,
+            raw,
+            timestamp,
+            source,
+        ) = payload.audio_args()
+    except ValueError as exc:
+        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+    return SnapBackResponse._from_audio(
+        dict(
+            gw.save_op(
                 session_id,
                 chunk_index,
                 mime_type,
                 raw,
                 timestamp,
                 source,
-            ) = payload.audio_args()
-        except ValueError as exc:
-            raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
-        return SnapBackResponse._from_audio(
-            dict(
-                gw.save_op(
-                    session_id,
-                    chunk_index,
-                    mime_type,
-                    raw,
-                    timestamp,
-                    source,
-                ),
             ),
-        )
+        ),
+    )
 
-    @app.post("/recap", response_model=SnapBackResponse)
-    def generate_recap(payload: RecapRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_recap(dict(gw.recap_op(*payload.recap_args())))
 
-    @app.get("/session/{session_id}/transcript", response_model=SnapBackResponse)
-    def get_session_transcript(session_id: str) -> SnapBackResponse:
-        return SnapBackResponse._from_bundle(dict(gw.bundle_op(session_id)))
+@router.post("/recap", response_model=SnapBackResponse)
+def generate_recap(payload: RecapRequest) -> SnapBackResponse:
+    """Generate a recap for a session using configured parameters."""
+    return SnapBackResponse._from_recap(dict(gw.recap_op(*payload.recap_args())))
 
-    @app.post("/session/end", response_model=SnapBackResponse)
-    def complete_session(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_end(dict(gw.end_op(payload.session())))
 
-    @app.post("/export/pdf")
-    def export_pdf(payload: SessionRequest) -> Response:
-        session_id = payload.session()
-        return Response(
-            content=gw.pdf_op(session_id),
-            media_type="application/pdf",
-            headers=_attachment_headers(session_id, "pdf"),
-        )
+@router.get("/session/{session_id}/transcript", response_model=SnapBackResponse)
+def get_session_transcript(session_id: str) -> SnapBackResponse:
+    """Fetch the transcript bundle for the given session id."""
+    return SnapBackResponse._from_bundle(dict(gw.bundle_op(session_id)))
 
-    @app.post("/export/markdown")
-    def export_markdown(payload: SessionRequest) -> Response:
-        session_id = payload.session()
-        return Response(
-            content=gw.md_op(session_id),
-            media_type="text/markdown",
-            headers=_attachment_headers(session_id, "md"),
-        )
 
-    @app.post("/export/notion", response_model=SnapBackResponse)
-    def export_notion(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_notion(dict(gw.notion_op(*payload.notion_args())))
+@router.post("/session/end", response_model=SnapBackResponse)
+def complete_session(payload: SessionRequest) -> SnapBackResponse:
+    """Mark a session as complete and run finalization tasks."""
+    return SnapBackResponse._from_end(dict(gw.end_op(payload.session())))
 
-    @app.post("/study/pack", response_model=SnapBackResponse)
-    def generate_study_pack(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_study_pack(dict(gw.study_op(payload.session())))
 
+@router.post("/export/pdf")
+def export_pdf(payload: SessionRequest) -> Response:
+    """Export session content as a PDF attachment."""
+    session_id = payload.session()
+    return Response(
+        content=gw.pdf_op(session_id),
+        media_type="application/pdf",
+        headers=_attachment_headers(session_id, "pdf"),
+    )
+
+
+@router.post("/export/markdown")
+def export_markdown(payload: SessionRequest) -> Response:
+    """Export session content as Markdown attachment."""
+    session_id = payload.session()
+    return Response(
+        content=gw.md_op(session_id),
+        media_type="text/markdown",
+        headers=_attachment_headers(session_id, "md"),
+    )
+
+
+@router.post("/export/notion", response_model=SnapBackResponse)
+def export_notion(payload: SessionRequest) -> SnapBackResponse:
+    """Send session content to Notion using configured credentials."""
+    return SnapBackResponse._from_notion(dict(gw.notion_op(*payload.notion_args())))
+
+
+@router.post("/study/pack", response_model=SnapBackResponse)
+def generate_study_pack(payload: SessionRequest) -> SnapBackResponse:
+    """Generate a study pack for the given session id."""
+    return SnapBackResponse._from_study_pack(dict(gw.study_op(payload.session())))
+
+
+def create_app() -> fastapi.FastAPI:
+    """Create and configure the FastAPI application."""
+    app = _build_http_app()
+    _configure_cors(app)
+    _register_routes(app)
     return app
 
 
