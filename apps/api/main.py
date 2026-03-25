@@ -1,396 +1,168 @@
-"""API endpoints for SnapBack."""
+"""SnapBack API."""
+
+# ruff: noqa: SLF001
 
 from __future__ import annotations
 
-import base64
-import os
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING
+
+import fastapi
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import Response
+
+import services.facade.api_gateway as gw
+from apps.api.schemas import (
+    AudioChunkRequest,
+    RecapRequest,
+    SessionRequest,
+    SnapBackResponse,
+)
+from services.jobs import bootstrap_system
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
-
-from services.analysis.detector import detect_missed_alerts, detect_topic_shift
-from services.analysis.summarizer import GroqSummarizer
-from services.exporters.export import (
-    build_markdown_export,
-    build_pdf_export,
-    export_to_notion,
-)
-from services.storage.database import (
-    append_transcript_chunk,
-    create_session,
-    delete_sessions_older_than,
-    end_session,
-    get_first_chunk_after,
-    get_last_chunk_before,
-    get_recaps,
-    get_session,
-    get_session_bundle,
-    get_transcript,
-    get_transcript_window,
-    init_db,
-    save_audio_chunk,
-    save_recap,
-)
-
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / "config" / "env" / ".env")
-
-AUTO_DELETE_AFTER_HOURS = int(os.getenv("AUTO_DELETE_AFTER_HOURS", "24"))
-NOTION_API_KEY = os.getenv("NOTION_API_KEY", "")
+    from collections.abc import AsyncIterator
 
 
-class SessionStartRequest(BaseModel):
-    """Request to start a new session."""
-
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["cloud", "local"] = "cloud"
-    language: str = "English"
-    recap_length: Literal["brief", "standard", "detailed"] = "standard"
+router = fastapi.APIRouter()
 
 
-class TranscriptChunkRequest(BaseModel):
-    """Request to ingest a transcript chunk."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    text: str = Field(min_length=1)
-    timestamp: str
-
-
-class RecapRequest(BaseModel):
-    """Request to generate a recap for a time window."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    from_timestamp: str
-    to_timestamp: str
-
-
-class SessionEndRequest(BaseModel):
-    """Request to end a session."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-class ExportRequest(BaseModel):
-    """Request to export a session."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-class AudioChunkRequest(BaseModel):
-    """Request to ingest an audio chunk."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    chunk_index: int
-    mime_type: str
-    audio_base64: str
-    timestamp: str
-    source: str = "extension"
-
-
-class NotionExportRequest(BaseModel):
-    """Request to export a session to Notion."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    page_id: str
-    notion_api_key: str | None = None
-
-
-class StudyPackRequest(BaseModel):
-    """Request to generate a study pack."""
-
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-
-scheduler = BackgroundScheduler()
-summarizer = GroqSummarizer(api_key=os.getenv("GROQ_API_KEY"))
+def _attachment_headers(session_id: str, extension: str) -> dict[str, str]:
+    content_disposition = f'attachment; filename="snapback-{session_id}.{extension}"'
+    return {"Content-Disposition": content_disposition}
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Handle application lifespan events."""
-    init_db()
-    scheduler.add_job(
-        delete_sessions_older_than,
-        "interval",
-        hours=max(AUTO_DELETE_AFTER_HOURS, 1),
-        args=[AUTO_DELETE_AFTER_HOURS],
-        id="cleanup-old-sessions",
-        replace_existing=True,
-    )
-    scheduler.start()
+async def _lifespan(_app: fastapi.FastAPI) -> AsyncIterator[None]:
+    sys_manager = bootstrap_system()
     yield
-    scheduler.shutdown(wait=False)
+    sys_manager.shutdown(wait=False)
 
 
-app = FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _build_http_app() -> fastapi.FastAPI:
+    return fastapi.FastAPI(title="SnapBack API", version="0.1.0", lifespan=_lifespan)
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    """Check the health of the API."""
-    return {"status": "ok"}
-
-
-@app.post("/session/start")
-def start_session(payload: SessionStartRequest) -> dict[str, Any]:
-    """Start a new session."""
-    session = create_session(
-        payload.mode,
-        payload.language,
-        payload.recap_length,
+def _configure_cors(app: fastapi.FastAPI) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    return {
-        "session_id": session["id"],
-        "start_timestamp": session["start_timestamp"],
-        "session": session,
-    }
 
 
-@app.post("/session/transcript")
-def ingest_transcript(payload: TranscriptChunkRequest) -> dict[str, Any]:
-    """Ingest a transcript chunk into the database."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    chunk = append_transcript_chunk(
-        payload.session_id,
-        payload.text,
-        payload.timestamp,
+def _register_routes(app: fastapi.FastAPI) -> None:
+    app.include_router(router)
+
+
+@router.get("/health", response_model=SnapBackResponse)
+def health_check() -> SnapBackResponse:
+    """Health check endpoint returning service status."""
+    return SnapBackResponse.health()
+
+
+@router.post("/session/start", response_model=SnapBackResponse)
+def start_session(payload: SessionRequest) -> SnapBackResponse:
+    """Start a new session with provided parameters."""
+    return SnapBackResponse._from_start(dict(gw.start_op(*payload.start_args())))
+
+
+@router.post("/session/transcript", response_model=SnapBackResponse)
+def ingest_transcript(payload: SessionRequest) -> SnapBackResponse:
+    """Ingest a transcript segment for a session."""
+    return SnapBackResponse._from_transcript(
+        dict(gw.ingest_op(*payload.transcript_args())),
     )
-    return {"chunk": chunk}
 
 
-@app.post("/session/audio-chunk")
-def ingest_audio_chunk(payload: AudioChunkRequest) -> dict[str, Any]:
-    """Ingest an audio chunk and save it to the disk."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
+@router.post("/session/audio-chunk", response_model=SnapBackResponse)
+def ingest_audio_chunk(payload: AudioChunkRequest) -> SnapBackResponse:
+    """Receive and persist an audio chunk for a session."""
     try:
-        audio_bytes = base64.b64decode(payload.audio_base64)
-    except Exception as error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid audio payload: {error}",
-        ) from error
-
-    audio_dir = ROOT_DIR / "data" / "audio" / payload.session_id
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    extension = "webm" if "webm" in payload.mime_type else "bin"
-    file_path = audio_dir / f"chunk-{payload.chunk_index:06d}.{extension}"
-    file_path.write_bytes(audio_bytes)
-
-    chunk = save_audio_chunk(
-        session_id=payload.session_id,
-        chunk_index=payload.chunk_index,
-        mime_type=payload.mime_type,
-        file_path=str(file_path),
-        timestamp=payload.timestamp,
-        source=payload.source,
-    )
-    return {"audio_chunk": chunk}
-
-
-@app.post("/recap")
-def generate_recap(payload: RecapRequest) -> dict[str, Any]:
-    """Generate a recap for a specific time window within a session."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    chunks = get_transcript_window(
-        payload.session_id,
-        payload.from_timestamp,
-        payload.to_timestamp,
-    )
-    transcript_text = "\n".join(chunk["text"] for chunk in chunks)
-    summary = summarizer.generate_summary(
-        transcript_text,
-        language=session.get("language", "English"),
-        recap_length=session.get("recap_length", "standard"),
-    )
-    keywords = summarizer.extract_keywords(transcript_text)
-    previous_chunk = get_last_chunk_before(
-        payload.session_id,
-        payload.from_timestamp,
-    )
-    current_chunk = get_first_chunk_after(
-        payload.session_id,
-        payload.to_timestamp,
-    )
-    comparison_chunk = (
-        current_chunk
-        or (chunks[-1] if chunks else None)
-        or (chunks[0] if chunks else None)
-    )
-    topic_shift_detected = detect_topic_shift(
-        previous_chunk["text"] if previous_chunk else None,
-        comparison_chunk["text"] if comparison_chunk else None,
-    )
-    missed_alerts = detect_missed_alerts(chunks)
-    recap = save_recap(
-        session_id=payload.session_id,
-        from_timestamp=payload.from_timestamp,
-        to_timestamp=payload.to_timestamp,
-        summary=summary,
-        keywords=keywords,
-        topic_shift_detected=topic_shift_detected,
-        missed_alerts=missed_alerts,
-    )
-    return {
-        "summary": summary,
-        "keywords": keywords,
-        "topic_shift_detected": topic_shift_detected,
-        "missed_alerts": missed_alerts,
-        "topic_shift_reference": {
-            "before_departure": (
-                previous_chunk["timestamp"] if previous_chunk else None
+        (
+            session_id,
+            chunk_index,
+            mime_type,
+            raw,
+            timestamp,
+            source,
+        ) = payload.audio_args()
+    except ValueError as exc:
+        raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+    return SnapBackResponse._from_audio(
+        dict(
+            gw.save_op(
+                session_id,
+                chunk_index,
+                mime_type,
+                raw,
+                timestamp,
+                source,
             ),
-            "comparison_chunk": (
-                comparison_chunk["timestamp"] if comparison_chunk else None
-            ),
-        },
-        "recap": recap,
-    }
-
-
-@app.get("/session/{session_id}/transcript")
-def get_session_transcript(session_id: str) -> dict[str, Any]:
-    """Get the full transcript and metadata for a session."""
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {
-        "session": session,
-        "transcript": get_transcript(session_id),
-        "recaps": get_recaps(session_id),
-    }
-
-
-@app.post("/session/end")
-def complete_session(payload: SessionEndRequest) -> dict[str, Any]:
-    """Complete a session and generate a full summary."""
-    session = get_session(payload.session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    transcript = get_transcript(payload.session_id)
-    transcript_text = "\n".join(chunk["text"] for chunk in transcript)
-    full_summary = summarizer.summarize_full_session(
-        transcript_text,
-        language=session.get("language", "English"),
-    )
-    updated_session = end_session(payload.session_id, full_summary)
-    return {"full_summary": full_summary, "session": updated_session}
-
-
-@app.post("/export/pdf")
-def export_pdf(payload: ExportRequest) -> Response:
-    """Export the session as a PDF document."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    pdf_bytes = build_pdf_export(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-    )
-    headers = {
-        "Content-Disposition": (
-            f'attachment; filename="snapback-{payload.session_id}.pdf"'
         ),
-    }
+    )
+
+
+@router.post("/recap", response_model=SnapBackResponse)
+def generate_recap(payload: RecapRequest) -> SnapBackResponse:
+    """Generate a recap for a session using configured parameters."""
+    return SnapBackResponse._from_recap(dict(gw.recap_op(*payload.recap_args())))
+
+
+@router.get("/session/{session_id}/transcript", response_model=SnapBackResponse)
+def get_session_transcript(session_id: str) -> SnapBackResponse:
+    """Fetch the transcript bundle for the given session id."""
+    return SnapBackResponse._from_bundle(dict(gw.bundle_op(session_id)))
+
+
+@router.post("/session/end", response_model=SnapBackResponse)
+def complete_session(payload: SessionRequest) -> SnapBackResponse:
+    """Mark a session as complete and run finalization tasks."""
+    return SnapBackResponse._from_end(dict(gw.end_op(payload.session())))
+
+
+@router.post("/export/pdf")
+def export_pdf(payload: SessionRequest) -> Response:
+    """Export session content as a PDF attachment."""
+    session_id = payload.session()
     return Response(
-        content=pdf_bytes,
+        content=gw.pdf_op(session_id),
         media_type="application/pdf",
-        headers=headers,
+        headers=_attachment_headers(session_id, "pdf"),
     )
 
 
-@app.post("/export/markdown")
-def export_markdown(payload: ExportRequest) -> Response:
-    """Export the session as a Markdown document."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    markdown = build_markdown_export(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-    )
-    headers = {
-        "Content-Disposition": (
-            f'attachment; filename="snapback-{payload.session_id}.md"'
-        ),
-    }
+@router.post("/export/markdown")
+def export_markdown(payload: SessionRequest) -> Response:
+    """Export session content as Markdown attachment."""
+    session_id = payload.session()
     return Response(
-        content=markdown,
+        content=gw.md_op(session_id),
         media_type="text/markdown",
-        headers=headers,
+        headers=_attachment_headers(session_id, "md"),
     )
 
 
-@app.post("/export/notion")
-def export_notion(payload: NotionExportRequest) -> dict[str, Any]:
-    """Export the session to a Notion page."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
-    api_key = payload.notion_api_key or NOTION_API_KEY
-    if not api_key:
-        raise HTTPException(status_code=400, detail="Missing Notion API key")
-    return export_to_notion(
-        {
-            "session": bundle.session,
-            "transcript": bundle.transcript,
-            "recaps": bundle.recaps,
-        },
-        api_key=api_key,
-        page_id=payload.page_id,
-    )
+@router.post("/export/notion", response_model=SnapBackResponse)
+def export_notion(payload: SessionRequest) -> SnapBackResponse:
+    """Send session content to Notion using configured credentials."""
+    return SnapBackResponse._from_notion(dict(gw.notion_op(*payload.notion_args())))
 
 
-@app.post("/study/pack")
-def generate_study_pack(payload: StudyPackRequest) -> dict[str, Any]:
-    """Generate a study pack for a session."""
-    bundle = get_session_bundle(payload.session_id)
-    if not bundle:
-        raise HTTPException(status_code=404, detail="Session not found")
+@router.post("/study/pack", response_model=SnapBackResponse)
+def generate_study_pack(payload: SessionRequest) -> SnapBackResponse:
+    """Generate a study pack for the given session id."""
+    return SnapBackResponse._from_study_pack(dict(gw.study_op(payload.session())))
 
-    transcript_text = "\n".join(chunk["text"] for chunk in bundle.transcript)
-    study_pack = summarizer.generate_study_pack(
-        transcript_text,
-        language=bundle.session.get("language", "English"),
-    )
-    return {
-        "session_id": payload.session_id,
-        "study_pack": study_pack,
-    }
+
+def create_app() -> fastapi.FastAPI:
+    """Create and configure the FastAPI application."""
+    app = _build_http_app()
+    _configure_cors(app)
+    _register_routes(app)
+    return app
+
+
+app = create_app()
