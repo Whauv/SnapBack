@@ -1,147 +1,112 @@
-"""SnapBack API. Restored user endpoints."""
+"""SnapBack API."""
 
 from __future__ import annotations
-import base64
-import binascii
-from typing import Literal, Any
 
-import fastapi
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
-
-from services.facade.api_gateway import (
-    start_op, ingest_op, save_op, recap_op, bundle_op, end_op,
-    pdf_op, md_op, notion_op, study_op
-)
-
-class SessionStartRequest(BaseModel):
-    """Request to start a new session."""
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["cloud", "local"] = "cloud"
-    language: str = "English"
-    recap_length: Literal["brief", "standard", "detailed"] = "standard"
-
-class TranscriptChunkRequest(BaseModel):
-    """Request to ingest a transcript chunk."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    text: str = Field(min_length=1)
-    timestamp: str
-
-class RecapRequest(BaseModel):
-    """Request to generate a recap for a time window."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    from_timestamp: str
-    to_timestamp: str
-
-class SessionEndRequest(BaseModel):
-    """Request to end a session."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-class ExportRequest(BaseModel):
-    """Request to export a session."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-class AudioChunkRequest(BaseModel):
-    """Request to ingest an audio chunk."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    chunk_index: int
-    mime_type: str
-    audio_base64: str
-    timestamp: str
-    source: str = "extension"
-
-class NotionExportRequest(BaseModel):
-    """Request to export a session to Notion."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-    page_id: str
-    notion_api_key: str | None = None
-
-class StudyPackRequest(BaseModel):
-    """Request to generate a study pack."""
-    model_config = ConfigDict(extra="forbid")
-    session_id: str
-
-class APIStatusResponse(BaseModel):
-    """Response."""
-    status: str = "success"
-    session_id: str | None = None
-    data: dict[str, Any] = Field(default_factory=dict)
-    error_message: str | None = None
-    model_config = ConfigDict(populate_by_name=True)
-
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
-from services.jobs import bootstrap_system
 
-@asynccontextmanager
-async def lifespan(_app: fastapi.FastAPI) -> AsyncGenerator[None, None]:
-    sys_manager = bootstrap_system()
-    yield
-    sys_manager.shutdown(wait=False)
-
-app = fastapi.FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+from apps.api.schemas import (
+    AudioChunkRequest,
+    RecapRequest,
+    SessionRequest,
+    SnapBackResponse,
 )
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
 
-@app.post("/session/start")
-def start_session(payload: SessionStartRequest) -> object:
-    res = start_op(payload.mode, payload.language, payload.recap_length)
-    return {"session_id": res.get("id"), "start_timestamp": res.get("start_timestamp"), "session": res}
+def _attachment_headers(session_id: str, extension: str) -> dict[str, str]:
+    return {
+        "Content-Disposition": f'attachment; filename="snapback-{session_id}.{extension}"'
+    }
 
-@app.post("/session/transcript")
-def ingest_transcript(payload: TranscriptChunkRequest) -> object:
-    return ingest_op(payload.session_id, payload.text, payload.timestamp)
 
-@app.post("/session/audio-chunk")
-def ingest_audio_chunk(payload: AudioChunkRequest) -> object:
-    try:
-        raw = base64.b64decode(payload.audio_base64)
-    except Exception as error:
-        raise fastapi.HTTPException(status_code=400, detail=f"Invalid payload: {error}") from error
-    return save_op(payload.session_id, payload.chunk_index, payload.mime_type, raw, payload.timestamp, payload.source)
+def create_app():
+    import fastapi
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.responses import Response
 
-@app.post("/recap")
-def generate_recap(payload: RecapRequest) -> object:
-    return recap_op(payload.session_id, payload.from_timestamp, payload.to_timestamp)
+    import services.facade.api_gateway as gw
 
-@app.get("/session/{session_id}/transcript")
-def get_session_transcript(session_id: str) -> object:
-    return bundle_op(session_id)
+    @asynccontextmanager
+    async def lifespan(_app: fastapi.FastAPI) -> AsyncIterator[None]:
+        from services.jobs import bootstrap_system
 
-@app.post("/session/end")
-def complete_session(payload: SessionEndRequest) -> object:
-    return end_op(payload.session_id)
+        sys_manager = bootstrap_system()
+        yield
+        sys_manager.shutdown(wait=False)
 
-@app.post("/export/pdf")
-def export_pdf(payload: ExportRequest) -> Response:
-    headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.pdf"'}
-    return Response(content=pdf_op(payload.session_id), media_type="application/pdf", headers=headers)
+    app = fastapi.FastAPI(title="SnapBack API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-@app.post("/export/markdown")
-def export_markdown(payload: ExportRequest) -> Response:
-    headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.md"'}
-    return Response(content=md_op(payload.session_id), media_type="text/markdown", headers=headers)
+    @app.get("/health", response_model=SnapBackResponse)
+    def health_check() -> SnapBackResponse:
+        return SnapBackResponse.health()
 
-@app.post("/export/notion")
-def export_notion(payload: NotionExportRequest) -> object:
-    return notion_op(payload.session_id, payload.page_id)
+    @app.post("/session/start", response_model=SnapBackResponse)
+    def start_session(payload: SessionRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_start(dict(gw.start_op(*payload.start_args())))
 
-@app.post("/study/pack")
-def generate_study_pack(payload: StudyPackRequest) -> object:
-    return study_op(payload.session_id)
+    @app.post("/session/transcript", response_model=SnapBackResponse)
+    def ingest_transcript(payload: SessionRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_transcript(dict(gw.ingest_op(*payload.transcript_args())))
+
+    @app.post("/session/audio-chunk", response_model=SnapBackResponse)
+    def ingest_audio_chunk(payload: AudioChunkRequest) -> SnapBackResponse:
+        try:
+            session_id, chunk_index, mime_type, raw, timestamp, source = payload.audio_args()
+        except ValueError as exc:
+            raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
+        return SnapBackResponse.from_audio(
+            dict(gw.save_op(session_id, chunk_index, mime_type, raw, timestamp, source))
+        )
+
+    @app.post("/recap", response_model=SnapBackResponse)
+    def generate_recap(payload: RecapRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_recap(dict(gw.recap_op(*payload.recap_args())))
+
+    @app.get("/session/{session_id}/transcript", response_model=SnapBackResponse)
+    def get_session_transcript(session_id: str) -> SnapBackResponse:
+        return SnapBackResponse._from_bundle(dict(gw.bundle_op(session_id)))
+
+    @app.post("/session/end", response_model=SnapBackResponse)
+    def complete_session(payload: SessionRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_end(dict(gw.end_op(payload.session())))
+
+    @app.post("/export/pdf")
+    def export_pdf(payload: SessionRequest) -> Response:
+        session_id = payload.session()
+        return Response(
+            content=gw.pdf_op(session_id),
+            media_type="application/pdf",
+            headers=_attachment_headers(session_id, "pdf"),
+        )
+
+    @app.post("/export/markdown")
+    def export_markdown(payload: SessionRequest) -> Response:
+        session_id = payload.session()
+        return Response(
+            content=gw.md_op(session_id),
+            media_type="text/markdown",
+            headers=_attachment_headers(session_id, "md"),
+        )
+
+    @app.post("/export/notion", response_model=SnapBackResponse)
+    def export_notion(payload: SessionRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_notion(dict(gw.notion_op(*payload.notion_args())))
+
+    @app.post("/study/pack", response_model=SnapBackResponse)
+    def generate_study_pack(payload: SessionRequest) -> SnapBackResponse:
+        return SnapBackResponse._from_study_pack(dict(gw.study_op(payload.session())))
+
+    return app
+
+
+app = create_app()
+
+
+
