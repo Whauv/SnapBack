@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, TypeVar, cast
+from typing import TypeVar, cast
 
 from groq import Groq
+from pydantic import BaseModel, ConfigDict, Field
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from pydantic import BaseModel, ConfigDict, Field
 
 # Constants
 ALERT_PHRASES = [
@@ -20,6 +20,8 @@ ALERT_PHRASES = [
     "this is critical",
 ]
 MAX_SUMMARY_SENTENCES = 4
+MIN_FLASHCARD_QUESTION_LENGTH = 10
+MIN_FLASHCARD_ANSWER_LENGTH = 5
 SUMMARY_SYSTEM_PROMPT = (
     "You are a student assistant. Given a segment of a lecture transcript, "
     "generate a 2-3 sentence summary that helps a returning student quickly "
@@ -31,13 +33,17 @@ T = TypeVar("T")
 
 class EngineFlashcard(BaseModel):
     """Rich Flashcard."""
+
     question: str = Field(min_length=3)
     answer: str = Field(min_length=1)
     model_config = ConfigDict(populate_by_name=True)
 
     def is_valid_academic(self) -> bool:
-        """Academic check."""
-        return len(self.question) > 10 and len(self.answer) > 5
+        """Return True when the flashcard looks academically substantial."""
+        return (
+            len(self.question) > MIN_FLASHCARD_QUESTION_LENGTH
+            and len(self.answer) > MIN_FLASHCARD_ANSWER_LENGTH
+        )
 
     def get_summary(self) -> str:
         """Summary view."""
@@ -50,6 +56,7 @@ class EngineFlashcard(BaseModel):
 
 class EngineQuizQuestion(BaseModel):
     """Rich QuizQuestion."""
+
     question: str = Field(min_length=3)
     answer: str = Field(min_length=1)
     explanation: str = Field(min_length=5)
@@ -69,6 +76,7 @@ class EngineQuizQuestion(BaseModel):
 
 class EngineStudyPack(BaseModel):
     """Rich StudyPack."""
+
     outline: list[str]
     flashcards: list[EngineFlashcard]
     quiz_questions: list[EngineQuizQuestion]
@@ -83,12 +91,13 @@ class EngineStudyPack(BaseModel):
         return {"items": self.count(), "p": len(self.review_priorities)}
 
     def has_data(self) -> bool:
-        """Data check."""
+        """Return True when the study pack contains outline data."""
         return len(self.outline) > 0
 
 
 class EngineAlert(BaseModel):
     """Rich Alert."""
+
     text: str = Field(min_length=1)
     timestamp: str
 
@@ -148,7 +157,7 @@ def _safe_parse(text: str, default: T) -> T:
     try:
         d = json.loads(text)
         if isinstance(d, (list, dict)):
-            return cast(T, d)
+            return cast("T", d)
     except (json.JSONDecodeError, TypeError):
         pass
     return default
@@ -173,7 +182,10 @@ class AnalysisEngine:
         r = self.client.chat.completions.create(
             model=self.model,
             temperature=temp,
-            messages=[{"role": "system", "content": sys}, {"role": "user", "content": usr}],
+            messages=[
+                {"role": "system", "content": sys},
+                {"role": "user", "content": usr},
+            ],
         )
         return str(r.choices[0].message.content or "").strip()
 
@@ -183,7 +195,7 @@ class AnalysisEngine:
             return "No content."
         if not self.client:
             return self._fallback_summary(text)
-        
+
         h = f"Keep it to {length} sentences."
         p = f"Language: {lang}\n{h}\n\nTranscript:\n{text}"
         return self._chat(SUMMARY_SYSTEM_PROMPT, p) or self._fallback_summary(text)
@@ -192,7 +204,10 @@ class AnalysisEngine:
         """Keywords."""
         if not text.strip() or not self.client:
             return []
-        p = f"Extract 3-5 academic terms from this lecture as a JSON array of strings.\n\nTranscript:\n{text}"
+        p = (
+            "Extract 3-5 academic terms from this lecture as a JSON array of strings."
+            f"\n\nTranscript:\n{text}"
+        )
         r = self._chat("Return ONLY valid JSON array.", p, temp=0.0)
         return _safe_parse(r, [])
 
@@ -202,33 +217,62 @@ class AnalysisEngine:
             return "No content."
         if not self.client:
             return self._fallback_summary(text, max_s=MAX_SUMMARY_SENTENCES)
-        p = f"Language: {lang}\nSummarize lecture in 4-6 sentences.\n\nTranscript:\n{text}"
-        return self._chat("Academic Assistant.", p) or self._fallback_summary(text, max_s=MAX_SUMMARY_SENTENCES)
+        p = (
+            f"Language: {lang}\n"
+            "Summarize lecture in 4-6 sentences."
+            f"\n\nTranscript:\n{text}"
+        )
+        return self._chat(
+            "Academic Assistant.",
+            p,
+        ) or self._fallback_summary(text, max_s=MAX_SUMMARY_SENTENCES)
 
     def generate_study_pack(self, text: str, lang: str) -> EngineStudyPack:
         """Study pack."""
         if not text.strip() or not self.client:
             return self._fallback_study_pack(text)
-        
-        p = f"Language: {lang}\nReturn JSON: outline(strings), flashcards(question, answer), quiz_questions(question, answer, explanation), review_priorities(strings).\n\nTranscript:\n{text}"
+
+        p = (
+            f"Language: {lang}\n"
+            "Return JSON: outline(strings), flashcards(question, answer), "
+            "quiz_questions(question, answer, explanation), "
+            f"review_priorities(strings).\n\nTranscript:\n{text}"
+        )
         d = _safe_parse(self._chat("Return ONLY valid JSON.", p), {})
         if not d:
             return self._fallback_study_pack(text)
-        
+
         return EngineStudyPack(
-            outline=cast(list[str], d.get("outline", [])),
-            flashcards=[EngineFlashcard(**f) for f in d.get("flashcards", []) if isinstance(f, dict) and "question" in f],
-            quiz_questions=[EngineQuizQuestion(**q) for q in d.get("quiz_questions", []) if isinstance(q, dict) and "question" in q],
-            review_priorities=cast(list[str], d.get("review_priorities", [])),
+            outline=cast("list[str]", d.get("outline", [])),
+            flashcards=[
+                EngineFlashcard(**f)
+                for f in d.get("flashcards", [])
+                if isinstance(f, dict) and "question" in f
+            ],
+            quiz_questions=[
+                EngineQuizQuestion(**q)
+                for q in d.get("quiz_questions", [])
+                if isinstance(q, dict) and "question" in q
+            ],
+            review_priorities=cast("list[str]", d.get("review_priorities", [])),
         )
 
     @staticmethod
     def _fallback_summary(text: str, max_s: int = 3) -> str:
         """Fallback."""
-        s = [st.strip() for st in text.replace("?", ".").replace("!", ".").split(".") if st.strip()]
+        s = [
+            st.strip()
+            for st in text.replace("?", ".").replace("!", ".").split(".")
+            if st.strip()
+        ]
         return ". ".join(s[:max_s]) + "." if s else "No content."
 
     def _fallback_study_pack(self, text: str) -> EngineStudyPack:
         """Fallback pack."""
         sm = self._fallback_summary(text)
-        return EngineStudyPack(outline=[sm], flashcards=[], quiz_questions=[], review_priorities=[])
+        return EngineStudyPack(
+            outline=[sm],
+            flashcards=[],
+            quiz_questions=[],
+            review_priorities=[],
+        )

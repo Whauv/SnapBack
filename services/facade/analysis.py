@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+
 from services.analysis.engine import (
     AnalysisEngine,
     detect_missed_alerts,
     detect_topic_shift,
 )
+from services.constants import ERR_SESSION_NOT_FOUND
 from services.storage.database import SnapBackStorage
 
 
@@ -23,8 +25,6 @@ def orchestrate_recap(sid: str, f: str, t: str, lang: str, mode: str) -> dict:
 
     chunks = store.get_transcript(sid, f, t)
     if not chunks:
-        from services.constants import ERR_SESSION_NOT_FOUND
-
         raise ValueError(ERR_SESSION_NOT_FOUND)
 
     e = _boot_engine()

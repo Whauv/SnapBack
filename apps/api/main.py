@@ -1,35 +1,39 @@
 """SnapBack API."""
 
+# ruff: noqa: SLF001
+
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
+import fastapi
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import Response
+
+import services.facade.api_gateway as gw
 from apps.api.schemas import (
     AudioChunkRequest,
     RecapRequest,
     SessionRequest,
     SnapBackResponse,
 )
+from services.jobs import bootstrap_system
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _attachment_headers(session_id: str, extension: str) -> dict[str, str]:
-    return {
-        "Content-Disposition": f'attachment; filename="snapback-{session_id}.{extension}"'
-    }
+    content_disposition = f'attachment; filename="snapback-{session_id}.{extension}"'
+    return {"Content-Disposition": content_disposition}
 
 
-def create_app():
-    import fastapi
-    from starlette.middleware.cors import CORSMiddleware
-    from starlette.responses import Response
-
-    import services.facade.api_gateway as gw
+def create_app() -> fastapi.FastAPI:  # noqa: C901
+    """Create and configure the FastAPI application."""
 
     @asynccontextmanager
     async def lifespan(_app: fastapi.FastAPI) -> AsyncIterator[None]:
-        from services.jobs import bootstrap_system
-
         sys_manager = bootstrap_system()
         yield
         sys_manager.shutdown(wait=False)
@@ -53,16 +57,34 @@ def create_app():
 
     @app.post("/session/transcript", response_model=SnapBackResponse)
     def ingest_transcript(payload: SessionRequest) -> SnapBackResponse:
-        return SnapBackResponse._from_transcript(dict(gw.ingest_op(*payload.transcript_args())))
+        return SnapBackResponse._from_transcript(
+            dict(gw.ingest_op(*payload.transcript_args())),
+        )
 
     @app.post("/session/audio-chunk", response_model=SnapBackResponse)
     def ingest_audio_chunk(payload: AudioChunkRequest) -> SnapBackResponse:
         try:
-            session_id, chunk_index, mime_type, raw, timestamp, source = payload.audio_args()
+            (
+                session_id,
+                chunk_index,
+                mime_type,
+                raw,
+                timestamp,
+                source,
+            ) = payload.audio_args()
         except ValueError as exc:
             raise fastapi.HTTPException(status_code=400, detail=str(exc)) from exc
-        return SnapBackResponse.from_audio(
-            dict(gw.save_op(session_id, chunk_index, mime_type, raw, timestamp, source))
+        return SnapBackResponse._from_audio(
+            dict(
+                gw.save_op(
+                    session_id,
+                    chunk_index,
+                    mime_type,
+                    raw,
+                    timestamp,
+                    source,
+                ),
+            ),
         )
 
     @app.post("/recap", response_model=SnapBackResponse)
@@ -107,6 +129,3 @@ def create_app():
 
 
 app = create_app()
-
-
-

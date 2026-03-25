@@ -1,6 +1,6 @@
 """Transcription client. Final nil-finding pass."""
 
-# ruff: noqa
+# ruff: noqa: D102, D107, I001, PERF203, PLC0415, S603, SIM117, TC003, TC006, TRY300, TRY400
 
 from __future__ import annotations
 
@@ -78,11 +78,17 @@ class TranscriptionClient:
 
     def __init__(self, config: TranscriptionConfig) -> None:
         self.config = config
-        self._threads: dict[str, threading.Thread | None] = {"stream": None, "audio": None}
+        self._threads: dict[str, threading.Thread | None] = {
+            "stream": None,
+            "audio": None,
+        }
         self._ws: websocket.WebSocketApp | None = None
         self._sid: str | None = None
         self._session: requests.Session | None = None
-        self._events: dict[str, threading.Event] = {"stop": threading.Event(), "connected": threading.Event()}
+        self._events: dict[str, threading.Event] = {
+            "stop": threading.Event(),
+            "connected": threading.Event(),
+        }
         self._lock = threading.Lock()
 
     @property
@@ -98,7 +104,7 @@ class TranscriptionClient:
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
+
         if loop.is_running():
             return cast(object, task(*args))
 
@@ -127,9 +133,11 @@ class TranscriptionClient:
         self._events["stop"].set()
         self._events["connected"].clear()
         if self._ws:
-            with contextlib.suppress(Exception): self._ws.close()
+            with contextlib.suppress(Exception):
+                self._ws.close()
         for name, th in list(self._threads.items()):
-            if th and th.is_alive() and th is not threading.current_thread(): th.join(timeout=2)
+            if th and th.is_alive() and th is not threading.current_thread():
+                th.join(timeout=2)
             self._threads[name] = None
         self._ws = None
 
@@ -146,7 +154,8 @@ class TranscriptionClient:
                 on_error=lambda _w, _e: self._events["connected"].clear(),
             )
             self._ws.run_forever(ping_interval=5, ping_timeout=3)
-            if self._events["stop"].is_set(): break
+            if self._events["stop"].is_set():
+                break
             time.sleep(bo)
             bo = min(bo * 2, self.config.max_reconnect_backoff_seconds)
 
@@ -160,7 +169,7 @@ class TranscriptionClient:
                     input=True,
                     frames_per_buffer=FRAMES_PER_BUFFER,
                     input_device_index=self.config.microphone_device_index,
-                )
+                ),
             ) as st:
                 while not self._events["stop"].is_set():
                     c = st.read(FRAMES_PER_BUFFER, exception_on_overflow=False)
@@ -197,7 +206,9 @@ class TranscriptionClient:
         for i in range(MAX_RETRIES + 1):
             try:
                 url = f"{self.config.backend_base_url}/session/transcript"
-                r = self._requests.post(url, json=pay, timeout=self.config.request_timeout_seconds)
+                r = self._requests.post(
+                    url, json=pay, timeout=self.config.request_timeout_seconds,
+                )
                 r.raise_for_status()
                 return
             except requests.RequestException:
@@ -216,7 +227,7 @@ class TranscriptionClient:
                     input=True,
                     frames_per_buffer=FRAMES_PER_BUFFER,
                     input_device_index=self.config.microphone_device_index,
-                )
+                ),
             ) as st:
                 f: list[bytes] = []
                 while not self._events["stop"].is_set():
@@ -226,7 +237,9 @@ class TranscriptionClient:
                         time.monotonic() - s < self.config.local_segment_seconds
                         and not self._events["stop"].is_set()
                     ):
-                        f.append(st.read(FRAMES_PER_BUFFER, exception_on_overflow=False))
+                        f.append(
+                            st.read(FRAMES_PER_BUFFER, exception_on_overflow=False),
+                        )
 
                     if f:
                         self._tx_local(list(f))

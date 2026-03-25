@@ -1,9 +1,11 @@
 .PHONY: lint format build-zoom clean
 
 lint:
-	ruff check --exit-zero --select ALL --ignore D203,D213,COM812 .
-	# Additional docstring checks are intentionally not blocking CI here
-	# (kept for local development in separate checks if desired)
+	ruff check --select ALL --fix .
+	ruff check --select ALL --ignore D203,D213,COM812 .
+	ruff check --select D211 .
+	ruff check --select D212 .
+	ruff check --select D213 .
 
 format:
 	ruff format .

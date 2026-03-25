@@ -86,11 +86,11 @@ def build_pdf_export(bundle: SessionBundle) -> bytes:
     if recaps:
         for recap in recaps:
             pdf.multi_cell(
-                0, 7, fill(f"{recap.from_timestamp} to {recap.to_timestamp}", width=95)
+                0, 7, fill(f"{recap.from_timestamp} to {recap.to_timestamp}", width=95),
             )
             pdf.multi_cell(0, 7, fill(recap.summary, width=95))
             pdf.multi_cell(
-                0, 7, fill(f"Keywords: {recap.key_str() or 'None'}", width=95)
+                0, 7, fill(f"Keywords: {recap.key_str() or 'None'}", width=95),
             )
             pdf.ln(2)
     else:
@@ -132,7 +132,7 @@ def export_to_notion(
                     {
                         "type": "text",
                         "text": {"content": session.full_summary or "None."},
-                    }
+                    },
                 ],
             },
         },
@@ -145,10 +145,10 @@ def export_to_notion(
                 "type": "heading_2",
                 "heading_2": {
                     "rich_text": [
-                        {"type": "text", "text": {"content": "Recap History"}}
-                    ]
+                        {"type": "text", "text": {"content": "Recap History"}},
+                    ],
                 },
-            }
+            },
         )
         children.extend(
             {
@@ -159,9 +159,12 @@ def export_to_notion(
                         {
                             "type": "text",
                             "text": {
-                                "content": f"{r.from_timestamp} to {r.to_timestamp}: {r.summary}"
+                                "content": (
+                                    f"{r.from_timestamp} to {r.to_timestamp}: "
+                                    f"{r.summary}"
+                                ),
                             },
-                        }
+                        },
                     ],
                 },
             }
@@ -173,9 +176,9 @@ def export_to_notion(
             "object": "block",
             "type": "heading_2",
             "heading_2": {
-                "rich_text": [{"type": "text", "text": {"content": "Transcript"}}]
+                "rich_text": [{"type": "text", "text": {"content": "Transcript"}}],
             },
-        }
+        },
     )
     p_view = "\n".join(f"[{c.timestamp}] {c.text}" for c in transcript[:50])
     children.append(
@@ -184,10 +187,10 @@ def export_to_notion(
             "type": "paragraph",
             "paragraph": {
                 "rich_text": [
-                    {"type": "text", "text": {"content": p_view or "No transcript."}}
-                ]
+                    {"type": "text", "text": {"content": p_view or "No transcript."}},
+                ],
             },
-        }
+        },
     )
 
     page = client.pages.create(
@@ -198,11 +201,13 @@ def export_to_notion(
                     {
                         "type": "text",
                         "text": {
-                            "content": f"SnapBack Session {session.start_timestamp[:10]}"
+                            "content": (
+                                f"SnapBack Session {session.start_timestamp[:10]}"
+                            ),
                         },
-                    }
-                ]
-            }
+                    },
+                ],
+            },
         },
         children=children,
     )

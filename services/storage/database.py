@@ -1,25 +1,28 @@
 """Database storage for SnapBack sessions. Thick models only."""
 
-# ruff: noqa
+# ruff: noqa: E501, FBT001, FBT002, PLR0913, RET503, S608
 
 from __future__ import annotations
 
-import uuid
-import sqlite3
 import json
 import shutil
+import sqlite3
+import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from services.constants import ERR_SESSION_NOT_FOUND
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT_DIR / "data" / "snapback.db"
+MIN_VALID_CHUNK_LENGTH = 3
 
 
 def utc_now_iso() -> str:
@@ -34,6 +37,7 @@ def ensure_parent_dir() -> None:
 
 class Session(BaseModel):
     """Rich Session."""
+
     id: str
     start_timestamp: str
     mode: str
@@ -70,12 +74,14 @@ class Session(BaseModel):
 
 class TranscriptChunk(BaseModel):
     """Rich Transcript."""
+
     id: int
     session_id: str
     text: str = Field(min_length=1)
     timestamp: str
     created_at: str
     model_config = ConfigDict(from_attributes=True)
+
     def wc(self) -> int:
         """Return word count for the chunk."""
         return len(self.text.split())
@@ -86,17 +92,20 @@ class TranscriptChunk(BaseModel):
 
     def is_valid(self) -> bool:
         """Return True if the chunk appears valid (not noise)."""
-        return len(self.text.strip()) > 3
+        return len(self.text.strip()) > MIN_VALID_CHUNK_LENGTH
 
     def get_words(self) -> list[str]:
+        """Return the chunk text split into words."""
         return self.text.split()
 
     def get_ts_short(self) -> str:
+        """Return a shortened timestamp string."""
         return self.timestamp[:19]
 
 
 class Recap(BaseModel):
     """Rich Recap."""
+
     id: int
     session_id: str
     from_timestamp: str
@@ -107,14 +116,27 @@ class Recap(BaseModel):
     missed_alerts: list[dict]
     created_at: str
     model_config = ConfigDict(from_attributes=True)
-    def kw(self) -> str: return ", ".join(self.keywords)
-    def al_cnt(self) -> int: return len(self.missed_alerts)
-    def has_sh(self) -> bool: return self.topic_shift_detected
-    def summ_len(self) -> int: return len(self.summary)
+
+    def kw(self) -> str:
+        """Return keywords as a comma-separated string."""
+        return ", ".join(self.keywords)
+
+    def al_cnt(self) -> int:
+        """Return the number of missed alerts."""
+        return len(self.missed_alerts)
+
+    def has_sh(self) -> bool:
+        """Return True when a topic shift was detected."""
+        return self.topic_shift_detected
+
+    def summ_len(self) -> int:
+        """Return the summary length in characters."""
+        return len(self.summary)
 
 
 class AudioChunk(BaseModel):
     """Rich Audio."""
+
     id: int
     session_id: str
     chunk_index: int
@@ -124,38 +146,50 @@ class AudioChunk(BaseModel):
     created_at: str
     source: str = "extension"
     model_config = ConfigDict(from_attributes=True)
+
     def p(self) -> Path:
+        """Return the file path as a Path object."""
         return Path(self.file_path)
 
     def ex(self) -> bool:
+        """Return True when the audio file exists."""
         return self.p().exists()
 
     def sz(self) -> int:
+        """Return the audio file size in bytes."""
         return self.p().stat().st_size if self.ex() else 0
 
     def suf(self) -> str:
+        """Return the audio file suffix."""
         return self.p().suffix
 
 
 class SessionBundle(BaseModel):
     """Rich Bundle."""
+
     session: Session
     transcript: list[TranscriptChunk]
     recaps: list[Recap]
     model_config = ConfigDict(from_attributes=True)
+
     def stats(self) -> dict:
+        """Return aggregate counts for transcript chunks and recaps."""
         return {"t": len(self.transcript), "r": len(self.recaps)}
 
     def total_words(self) -> int:
+        """Return total transcript word count across the bundle."""
         return sum(c.wc() for c in self.transcript)
 
     def has_transcript(self) -> bool:
+        """Return True when transcript chunks are present."""
         return len(self.transcript) > 0
 
     def has_recaps(self) -> bool:
+        """Return True when recaps are present."""
         return len(self.recaps) > 0
 
     def get_summary_text(self) -> str:
+        """Return the full summary text or a placeholder."""
         return self.session.full_summary or "None"
 
 
@@ -163,6 +197,7 @@ class SnapBackStorage:
     """Storage engine."""
 
     def __init__(self, db_path: Path = DB_PATH) -> None:
+        """Initialize storage with the provided database path."""
         self.db_path = db_path
         ensure_parent_dir()
 
@@ -174,10 +209,12 @@ class SnapBackStorage:
             yield c
 
     def _query(self, sql: str, p: tuple = ()) -> list[dict]:
+        """Execute a query and return rows as dictionaries."""
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, p).fetchall()]
 
     def init_db(self) -> None:
+        """Create tables required by the storage layer."""
         with self._conn() as conn:
             conn.executescript(
                 """
@@ -189,15 +226,18 @@ class SnapBackStorage:
                 );
                 CREATE TABLE IF NOT EXISTS transcript_chunks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
-                    text TEXT NOT NULL, timestamp TEXT NOT NULL, created_at TEXT NOT NULL,
+                    text TEXT NOT NULL, timestamp TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
                     FOREIGN KEY(session_id) REFERENCES sessions(id)
                 );
                 CREATE TABLE IF NOT EXISTS recaps (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
                     from_timestamp TEXT NOT NULL, to_timestamp TEXT NOT NULL,
                     summary TEXT NOT NULL, keywords_json TEXT NOT NULL,
-                    topic_shift_detected INTEGER NOT NULL, missed_alerts_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL, FOREIGN KEY(session_id) REFERENCES sessions(id)
+                    topic_shift_detected INTEGER NOT NULL,
+                    missed_alerts_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id)
                 );
                 CREATE TABLE IF NOT EXISTS audio_chunks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
@@ -206,47 +246,62 @@ class SnapBackStorage:
                     timestamp TEXT NOT NULL, created_at TEXT NOT NULL,
                     FOREIGN KEY(session_id) REFERENCES sessions(id)
                 );
-                """
+                """,
             )
 
     def _get_sn(self, sid: str) -> dict | None:
+        """Return the raw session row for a session id, if present."""
         rows = self._query("SELECT * FROM sessions WHERE id = ?", (sid,))
         if rows:
             return rows[0]
-        
 
     def fetch_bundle_or_raise(self, sid: str) -> SessionBundle:
+        """Return a session bundle or raise when the session is missing."""
         b = self.get_bundle(sid)
         if not b:
-            from services.constants import ERR_SESSION_NOT_FOUND
             raise ValueError(ERR_SESSION_NOT_FOUND)
         return b
 
     def create_session(self, mode: str, lang: str, recap: str) -> Session:
+        """Create and persist a new session."""
         sid = str(uuid.uuid4())
         now = utc_now_iso()
         self._query(
-            "INSERT INTO sessions (id, start_timestamp, mode, language, recap_length, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                "INSERT INTO sessions (id, start_timestamp, mode, language, recap_length, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            ),
             (sid, now, mode, lang, recap, now, now),
         )
         return Session.model_validate(self._get_sn(sid))
 
     def get_session(self, sid: str) -> Session | None:
+        """Return a typed session by id, if present."""
         r = self._get_sn(sid)
         if r:
             return Session.model_validate(r)
-        
 
     def end_session(self, sid: str, summary: str) -> Session | None:
+        """Mark a session as ended and store its summary."""
         now = utc_now_iso()
-        self._query("UPDATE sessions SET end_timestamp = ?, full_summary = ?, updated_at = ? WHERE id = ?", (now, summary, now, sid))
+        self._query(
+            (
+                "UPDATE sessions SET end_timestamp = ?, full_summary = ?, updated_at = ? "
+                "WHERE id = ?"
+            ),
+            (now, summary, now, sid),
+        )
         return self.get_session(sid)
 
     def append_chunk(self, sid: str, text: str, ts: str) -> TranscriptChunk:
+        """Append a transcript chunk to a session."""
         now = utc_now_iso()
         with self._conn() as conn:
             c = conn.execute(
-                "INSERT INTO transcript_chunks (session_id, text, timestamp, created_at) VALUES (?, ?, ?, ?)",
+                (
+                    "INSERT INTO transcript_chunks (session_id, text, timestamp, created_at) "
+                    "VALUES (?, ?, ?, ?)"
+                ),
                 (sid, text, ts, now),
             )
             conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, sid))
@@ -255,7 +310,10 @@ class SnapBackStorage:
         rows = self._query("SELECT * FROM transcript_chunks WHERE id = ?", (uid,))
         return TranscriptChunk.model_validate(rows[0])
 
-    def get_transcript(self, sid: str, start: str | None = None, end: str | None = None) -> list[TranscriptChunk]:
+    def get_transcript(
+        self, sid: str, start: str | None = None, end: str | None = None,
+    ) -> list[TranscriptChunk]:
+        """Return transcript chunks for a session, optionally within a window."""
         q = "SELECT * FROM transcript_chunks WHERE session_id = ?"
         p: list = [sid]
         if start and end:
@@ -267,6 +325,7 @@ class SnapBackStorage:
         return [TranscriptChunk.model_validate(r) for r in rows]
 
     def get_neighbor(self, sid: str, ts: str, before: bool) -> TranscriptChunk | None:
+        """Return the neighboring transcript chunk around a timestamp."""
         c, o = ("<", "DESC") if before else (">=", "ASC")
         q = (
             f"SELECT * FROM transcript_chunks WHERE session_id = ? AND timestamp {c} ? "
@@ -275,7 +334,6 @@ class SnapBackStorage:
         rows = self._query(q, (sid, ts))
         if rows:
             return TranscriptChunk.model_validate(rows[0])
-        
 
     def save_recap(
         self,
@@ -285,7 +343,7 @@ class SnapBackStorage:
         summ: str,
         keys: list[str],
         shift: bool = False,
-        alerts: list[dict] = None,
+        alerts: list[dict] | None = None,
     ) -> Recap:
         """Save a recap for a session and return the created Recap."""
         if alerts is None:
@@ -298,13 +356,25 @@ class SnapBackStorage:
                     "INSERT INTO recaps (session_id, from_timestamp, to_timestamp, summary, keywords_json, "
                     "topic_shift_detected, missed_alerts_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                 ),
-                (sid, f, t, summ, json.dumps(keys), 1 if shift else 0, json.dumps(alerts), now),
+                (
+                    sid,
+                    f,
+                    t,
+                    summ,
+                    json.dumps(keys),
+                    1 if shift else 0,
+                    json.dumps(alerts),
+                    now,
+                ),
             )
             uid = c.lastrowid
 
-        return self._prep_recap(self._query("SELECT * FROM recaps WHERE id = ?", (uid,))[0])
+        return self._prep_recap(
+            self._query("SELECT * FROM recaps WHERE id = ?", (uid,))[0],
+        )
 
     def _prep_recap(self, data: dict) -> Recap:
+        """Convert a raw recap row into a typed Recap instance."""
         return Recap(
             id=data["id"],
             session_id=data["session_id"],
@@ -333,7 +403,7 @@ class SnapBackStorage:
         path: str,
         ts: str,
         src: str,
-    ) -> AudioChunk:  # noqa: PLR0913
+    ) -> AudioChunk:
         """Save an audio chunk and return the created AudioChunk."""
         now = utc_now_iso()
         with self._conn() as conn:
@@ -366,16 +436,18 @@ class SnapBackStorage:
         return len(ids)
 
     def _db_del(self, sids: list) -> None:
+        """Delete rows linked to the provided session ids from all tables."""
         p = ",".join(["?"] * len(sids))
         with self._conn() as conn:
             for t in ["transcript_chunks", "recaps", "audio_chunks", "sessions"]:
                 # Table name is controlled internally; silence ruff S608 for this safe usage
                 conn.execute(
-                    f"DELETE FROM {t} WHERE {'session_id' if t != 'sessions' else 'id'} IN ({p})",  # noqa: S608
+                    f"DELETE FROM {t} WHERE {'session_id' if t != 'sessions' else 'id'} IN ({p})",
                     sids,
                 )
 
     def _fs_del(self, ps: list) -> None:
+        """Delete audio files and their parent directories."""
         for path in ps:
             path.unlink(missing_ok=True)
             shutil.rmtree(path.parent, ignore_errors=True)
@@ -389,4 +461,3 @@ class SnapBackStorage:
                 transcript=self.get_transcript(sid),
                 recaps=self.get_recaps(sid),
             )
-        
