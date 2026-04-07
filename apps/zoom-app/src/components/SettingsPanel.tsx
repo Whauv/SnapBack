@@ -4,12 +4,14 @@ type SettingsPanelProps = {
   mode: Mode;
   recapLength: RecapLength;
   language: string;
+  apiToken: string;
   darkMode: boolean;
   notionApiKey: string;
   notionPageId: string;
   onModeChange: (mode: Mode) => void;
   onRecapLengthChange: (length: RecapLength) => void;
   onLanguageChange: (language: string) => void;
+  onApiTokenChange: (value: string) => void;
   onDarkModeToggle: () => void;
   onNotionApiKeyChange: (value: string) => void;
   onNotionPageIdChange: (value: string) => void;
@@ -20,12 +22,14 @@ function SettingsPanel(props: SettingsPanelProps) {
     mode,
     recapLength,
     language,
+    apiToken,
     darkMode,
     notionApiKey,
     notionPageId,
     onModeChange,
     onRecapLengthChange,
     onLanguageChange,
+    onApiTokenChange,
     onDarkModeToggle,
     onNotionApiKeyChange,
     onNotionPageIdChange,
@@ -65,11 +69,15 @@ function SettingsPanel(props: SettingsPanelProps) {
             {darkMode ? "On" : "Off"}
           </button>
         </label>
+        <input type="password" value={apiToken} onChange={(event) => onApiTokenChange(event.target.value)} placeholder="SnapBack API token" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
         <input type="password" value={notionApiKey} onChange={(event) => onNotionApiKeyChange(event.target.value)} placeholder="Optional Notion API key override" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
         <input value={notionPageId} onChange={(event) => onNotionPageIdChange(event.target.value)} placeholder="Notion page ID" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" />
         <p className="text-xs leading-5 text-ink/60 dark:text-slate-400">
           Cloud mode streams audio through AssemblyAI. Local mode uses whisper.cpp on-device. Session data is cleaned up
           automatically based on your backend retention window.
+        </p>
+        <p className="text-xs leading-5 text-ink/60 dark:text-slate-400">
+          Local development uses the default token unless you override it here. For deployed environments, set a unique token in the backend and match it in the client.
         </p>
         <p className="text-xs leading-5 text-ink/60 dark:text-slate-400">
           Tip: leave the Notion key blank to use the backend environment secret instead of keeping a personal key in the browser.

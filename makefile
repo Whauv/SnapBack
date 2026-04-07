@@ -1,4 +1,4 @@
-.PHONY: lint format build-zoom clean
+.PHONY: lint format build-zoom test-backend test-extension clean
 
 lint:
 	ruff check --select ALL --ignore D203,D213,COM812 .
@@ -12,6 +12,12 @@ format:
 
 build-zoom:
 	cd apps/zoom-app && npm install && npm run build
+
+test-backend:
+	python -m unittest discover -s tests
+
+test-extension:
+	node --test apps/meet-extension/host-adapter.test.mjs
 
 clean:
 	rm -rf .ruff_cache

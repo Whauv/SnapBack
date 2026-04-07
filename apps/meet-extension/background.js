@@ -1,6 +1,7 @@
 const API_BASE = "http://localhost:8000";
 const STORAGE_KEY = "snapbackExtensionState";
 const CHUNK_INTERVAL_MS = 4000;
+const DEFAULT_API_TOKEN = "snapback-local-dev-token";
 
 const defaultState = {
   sessionId: null,
@@ -12,6 +13,7 @@ const defaultState = {
   chunkIndex: 0,
   lastError: "",
   transcriptCount: 0,
+  apiToken: DEFAULT_API_TOKEN,
 };
 
 let state = { ...defaultState };
@@ -22,6 +24,13 @@ let statusPollInterval = null;
 async function loadState() {
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   state = { ...defaultState, ...(stored[STORAGE_KEY] || {}) };
+}
+
+function buildApiHeaders(headers = {}) {
+  return {
+    Authorization: `Bearer ${state.apiToken || DEFAULT_API_TOKEN}`,
+    ...headers,
+  };
 }
 
 async function persistState() {
@@ -46,7 +55,9 @@ async function openSnapBackPanel(tabId) {
 async function ensureSessionTranscriptCount() {
   if (!state.sessionId) return;
   try {
-    const response = await fetch(`${API_BASE}/session/${state.sessionId}/transcript`);
+    const response = await fetch(`${API_BASE}/session/${state.sessionId}/transcript`, {
+      headers: buildApiHeaders(),
+    });
     if (!response.ok) return;
     const data = await response.json();
     state.transcriptCount = Array.isArray(data.transcript) ? data.transcript.length : 0;
@@ -75,7 +86,7 @@ async function postAudioChunk(base64Audio, mimeType) {
   state.chunkIndex += 1;
   const response = await fetch(`${API_BASE}/session/audio-chunk`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildApiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       session_id: state.sessionId,
       chunk_index: state.chunkIndex,
@@ -164,7 +175,7 @@ async function startCapture(tabId) {
 async function startSession(payload) {
   const response = await fetch(`${API_BASE}/session/start`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildApiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       mode: payload?.mode || "cloud",
       language: payload?.language || "English",
@@ -194,7 +205,7 @@ async function requestRecap() {
 
   const response = await fetch(`${API_BASE}/recap`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildApiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       session_id: state.sessionId,
       from_timestamp: state.departureTimestamp,
@@ -234,6 +245,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (message.type === "START_SESSION") {
+        if (typeof message.payload?.api_token === "string" && message.payload.api_token.trim()) {
+          state.apiToken = message.payload.api_token.trim();
+        }
         const data = await startSession(message.payload);
         sendResponse({ ok: true, data, state });
         return;

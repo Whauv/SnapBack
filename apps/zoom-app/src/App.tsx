@@ -119,12 +119,14 @@ function App() {
               mode={panel.mode}
               recapLength={panel.recapLength}
               language={panel.language}
+              apiToken={panel.apiToken}
               darkMode={panel.darkMode}
               notionApiKey={panel.notionApiKey}
               notionPageId={panel.notionPageId}
               onModeChange={panel.setMode}
               onRecapLengthChange={panel.setRecapLength}
               onLanguageChange={panel.setLanguage}
+              onApiTokenChange={panel.setApiToken}
               onDarkModeToggle={() => panel.setDarkMode((value) => !value)}
               onNotionApiKeyChange={panel.setNotionApiKey}
               onNotionPageIdChange={panel.setNotionPageId}

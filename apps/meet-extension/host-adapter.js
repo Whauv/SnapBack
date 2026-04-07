@@ -1,4 +1,11 @@
 const API_BASE = "http://localhost:8000";
+const DEFAULT_API_TOKEN = "snapback-local-dev-token";
+const STORAGE_KEY = "snapbackExtensionState";
+
+async function getApiToken() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  return stored?.[STORAGE_KEY]?.apiToken || DEFAULT_API_TOKEN;
+}
 
 async function sendRuntimeMessage(message) {
   const response = await chrome.runtime.sendMessage(message);
@@ -14,9 +21,12 @@ async function getActiveTab() {
 }
 
 async function getTranscript(sessionId) {
+  const apiToken = await getApiToken();
   let response;
   try {
-    response = await fetch(`${API_BASE}/session/${sessionId}/transcript`);
+    response = await fetch(`${API_BASE}/session/${sessionId}/transcript`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
   } catch {
     throw new Error("Unable to reach the SnapBack API. Check that the backend is running.");
   }

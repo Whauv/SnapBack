@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SnapBackHostAdapter } from "../hosts";
 import type { Mode, Recap, RecapLength, SessionRecord, StudyPack, TranscriptChunk } from "../types";
+import { getApiToken, setApiToken as persistApiToken } from "../hosts/auth";
 
 type UseSnapBackPanelOptions = {
   host: SnapBackHostAdapter;
@@ -18,6 +19,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
   const [mode, setMode] = useState<Mode>("cloud");
   const [recapLength, setRecapLength] = useState<RecapLength>("standard");
   const [language, setLanguage] = useState("English");
+  const [apiToken, setApiToken] = useState(() => getApiToken());
   const [notionApiKey, setNotionApiKey] = useState("");
   const [notionPageId, setNotionPageId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -45,12 +47,14 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
         mode: Mode;
         recapLength: RecapLength;
         language: string;
+        apiToken: string;
         notionPageId: string;
         darkMode: boolean;
       }>;
       if (parsed.mode) setMode(parsed.mode);
       if (parsed.recapLength) setRecapLength(parsed.recapLength);
       if (parsed.language) setLanguage(parsed.language);
+      if (parsed.apiToken) setApiToken(parsed.apiToken);
       if (parsed.notionPageId) setNotionPageId(parsed.notionPageId);
       if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
     } catch {
@@ -59,11 +63,15 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
   }, [settingsStorageKey]);
 
   useEffect(() => {
+    persistApiToken(apiToken);
+  }, [apiToken]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       settingsStorageKey,
-      JSON.stringify({ mode, recapLength, language, notionPageId, darkMode }),
+      JSON.stringify({ mode, recapLength, language, apiToken, notionPageId, darkMode }),
     );
-  }, [darkMode, language, mode, notionPageId, recapLength, settingsStorageKey]);
+  }, [apiToken, darkMode, language, mode, notionPageId, recapLength, settingsStorageKey]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
@@ -215,6 +223,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     fullSummary,
     host,
     language,
+    apiToken,
     latestSummary,
     loading,
     meetingContextLabel,
@@ -232,6 +241,7 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     setDarkMode,
     setDrawerOpen,
     setLanguage,
+    setApiToken,
     setMode,
     setNotionApiKey,
     setNotionPageId,
