@@ -45,6 +45,7 @@ from services.api.contracts import (
     TranscriptChunkRequest,
 )
 from services.api.rate_limit import InMemoryRateLimiter
+from services.api.security_headers import security_headers_middleware
 from services.api.session_service import SessionService
 from services.api.settings import AppSettings, ROOT_DIR
 from services.api.telemetry import telemetry_middleware
@@ -121,12 +122,15 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
 @app.middleware("http")
 async def attach_security_context(request: Request, call_next):
-    if not is_public_path(request.url.path):
-        principal = auth_manager.authenticate(request)
-        request.state.principal = principal
-        client_host = request.client.host if request.client else "unknown"
-        rate_limiter.enforce(f"{principal.principal_id}:{client_host}:{request.url.path}")
-    return await telemetry_middleware(request, call_next)
+    async def secured_call(next_request: Request):
+        if not is_public_path(next_request.url.path):
+            principal = auth_manager.authenticate(next_request)
+            next_request.state.principal = principal
+            client_host = next_request.client.host if next_request.client else "unknown"
+            rate_limiter.enforce(f"{principal.principal_id}:{client_host}:{next_request.url.path}")
+        return await telemetry_middleware(next_request, call_next)
+
+    return await security_headers_middleware(request, secured_call)
 
 
 @app.get("/", include_in_schema=False)

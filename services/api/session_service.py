@@ -71,6 +71,8 @@ class SessionService:
 
     def ingest_transcript(self, *, principal: AuthenticatedPrincipal, session_id: str, text: str, timestamp: str) -> dict[str, Any]:
         self._get_owned_session(session_id, principal)
+        if len(text) > self.settings.max_transcript_chars:
+            raise HTTPException(status_code=413, detail="Transcript chunk exceeds the configured size limit.")
         chunk = append_transcript_chunk(session_id, text, timestamp)
         return {"chunk": chunk}
 

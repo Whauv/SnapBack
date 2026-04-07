@@ -182,6 +182,7 @@ class ApiSecurityAndServiceTests(unittest.TestCase):
         self.database_module = importlib.reload(importlib.import_module("services.storage.database"))
         self.auth_module = importlib.reload(importlib.import_module("services.api.auth"))
         self.rate_limit_module = importlib.reload(importlib.import_module("services.api.rate_limit"))
+        self.security_headers_module = importlib.reload(importlib.import_module("services.api.security_headers"))
         self.service_module = importlib.reload(importlib.import_module("services.api.session_service"))
         self.main_module = importlib.reload(importlib.import_module("apps.api.main"))
 
@@ -292,6 +293,44 @@ class ApiSecurityAndServiceTests(unittest.TestCase):
                 source="chrome-extension",
             )
         self.assertEqual(context.exception.status_code, 400)
+
+    def test_transcript_size_limit_is_enforced(self):
+        session = self.service.start_session(
+            principal=self.alice,
+            mode="cloud",
+            language="English",
+            recap_length="standard",
+        )
+        oversized_text = "a" * (self.service.settings.max_transcript_chars + 1)
+        with self.assertRaises(self.http_exception_class) as context:
+            self.service.ingest_transcript(
+                principal=self.alice,
+                session_id=session["session_id"],
+                text=oversized_text,
+                timestamp="2026-04-07T10:00:00+00:00",
+            )
+        self.assertEqual(context.exception.status_code, 413)
+
+    def test_production_settings_require_explicit_tokens(self):
+        os.environ["APP_ENV"] = "production"
+        os.environ["SNAPBACK_API_TOKENS"] = ""
+        settings_module = importlib.reload(importlib.import_module("services.api.settings"))
+        with self.assertRaises(RuntimeError):
+            settings_module.AppSettings.from_env()
+
+    def test_security_headers_middleware_sets_baseline_headers(self):
+        request = self.request_class()
+        response = sys.modules["fastapi"].Response(headers={})
+
+        async def call_next(_request):
+            return response
+
+        import asyncio
+
+        secured_response = asyncio.run(self.security_headers_module.security_headers_middleware(request, call_next))
+        self.assertEqual(secured_response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(secured_response.headers["X-Frame-Options"], "DENY")
+        self.assertIn("Content-Security-Policy", secured_response.headers)
 
     def test_contract_timestamp_validation(self):
         with self.assertRaises(Exception) as context:

@@ -65,6 +65,7 @@ node --test apps/meet-extension/host-adapter.test.mjs
 - `TRUSTED_HOSTS` restricts accepted host headers.
 - `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW_SECONDS` cap per-principal request volume.
 - `MAX_TRANSCRIPT_CHARS` and `MAX_AUDIO_CHUNK_BYTES` cap request sizes for transcript and audio uploads.
+- the API also applies baseline security headers to every response for safer browser integration
 - `TRANSCRIPTION_MODE=local` enables the `whisper.cpp` privacy path.
 - `WHISPER_BINARY_PATH`, `WHISPER_MODEL_PATH`, `WHISPER_MODEL_URL`, `WHISPER_LANGUAGE`, `WHISPER_THREADS`, and `LOCAL_SEGMENT_SECONDS` tune local transcription.
 
@@ -107,6 +108,7 @@ The panel uses the same API token contract as the backend. Leave the default loc
 - Input validation for timestamps, session IDs, transcript sizes, and audio upload sizes
 - Groq recap and keyword generation with fallback summaries
 - Structured request logging, request IDs, trusted-host enforcement, and in-memory rate limiting
+- Baseline response security headers and service-layer payload guardrails
 - Backend integration tests for auth, ownership, recap/study-pack flows, validation errors, summarizer fallbacks, and alert detection
 - Topic-shift and missed-alert detection
 - PDF, Markdown, and Notion export endpoints
