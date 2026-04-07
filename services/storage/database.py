@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import uuid
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "data" / "snapback.db"
+DEFAULT_DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 
 def utc_now_iso() -> str:
@@ -24,18 +25,24 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def get_db_path() -> Path:
+    configured_path = os.getenv("SNAPBACK_DB_PATH")
+    return Path(configured_path).expanduser().resolve() if configured_path else DEFAULT_DB_PATH
+
+
 def ensure_parent_dir() -> None:
     """Ensure the directory for the database file exists."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    get_db_path().parent.mkdir(parents=True, exist_ok=True)
 
 
 @contextmanager
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
     """Provide a transactional scope around database operations."""
     ensure_parent_dir()
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(get_db_path())
     connection.row_factory = sqlite3.Row
     try:
+        connection.execute("PRAGMA foreign_keys = ON")
         yield connection
         connection.commit()
     finally:
@@ -65,7 +72,7 @@ def init_db() -> None:
                 text TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS recaps (
@@ -78,7 +85,7 @@ def init_db() -> None:
                 topic_shift_detected INTEGER NOT NULL DEFAULT 0,
                 missed_alerts_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS audio_chunks (
@@ -90,17 +97,22 @@ def init_db() -> None:
                 source TEXT NOT NULL DEFAULT 'extension',
                 timestamp TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
-            """,
+
+            CREATE INDEX IF NOT EXISTS idx_transcript_chunks_session_timestamp
+            ON transcript_chunks(session_id, timestamp, id);
+
+            CREATE INDEX IF NOT EXISTS idx_recaps_session_created_at
+            ON recaps(session_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_audio_chunks_session_created_at
+            ON audio_chunks(session_id, created_at, id);
+            """
         )
 
 
-def create_session(
-    mode: str,
-    language: str,
-    recap_length: str,
-) -> dict[str, Any]:
+def create_session(mode: str, language: str, recap_length: str) -> dict[str, Any]:
     """Create a new session."""
     session_id = str(uuid.uuid4())
     now = utc_now_iso()
@@ -121,10 +133,7 @@ def create_session(
 def get_session(session_id: str) -> dict[str, Any] | None:
     """Get a session by ID."""
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT * FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -143,11 +152,7 @@ def end_session(session_id: str, full_summary: str) -> dict[str, Any] | None:
     return get_session(session_id)
 
 
-def append_transcript_chunk(
-    session_id: str,
-    text: str,
-    timestamp: str,
-) -> dict[str, Any]:
+def append_transcript_chunk(session_id: str, text: str, timestamp: str) -> dict[str, Any]:
     """Append a transcript chunk to the session."""
     created_at = utc_now_iso()
     with get_connection() as connection:
@@ -159,14 +164,8 @@ def append_transcript_chunk(
             (session_id, text, timestamp, created_at),
         )
         chunk_id = cursor.lastrowid
-        connection.execute(
-            "UPDATE sessions SET updated_at = ? WHERE id = ?",
-            (created_at, session_id),
-        )
-        row = connection.execute(
-            "SELECT * FROM transcript_chunks WHERE id = ?",
-            (chunk_id,),
-        ).fetchone()
+        connection.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (created_at, session_id))
+        row = connection.execute("SELECT * FROM transcript_chunks WHERE id = ?", (chunk_id,)).fetchone()
     return dict(row)
 
 
@@ -185,11 +184,7 @@ def get_transcript(session_id: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
-def get_transcript_window(
-    session_id: str,
-    from_timestamp: str,
-    to_timestamp: str,
-) -> list[dict[str, Any]]:
+def get_transcript_window(session_id: str, from_timestamp: str, to_timestamp: str) -> list[dict[str, Any]]:
     """Get transcript chunks within the timestamp window."""
     with get_connection() as connection:
         rows = connection.execute(
@@ -274,10 +269,7 @@ def save_recap(
             ),
         )
         recap_id = cursor.lastrowid
-        row = connection.execute(
-            "SELECT * FROM recaps WHERE id = ?",
-            (recap_id,),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM recaps WHERE id = ?", (recap_id,)).fetchone()
     return hydrate_recap(dict(row))
 
 
@@ -324,21 +316,10 @@ def save_audio_chunk(
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                session_id,
-                chunk_index,
-                mime_type,
-                file_path,
-                source,
-                timestamp,
-                created_at,
-            ),
+            (session_id, chunk_index, mime_type, file_path, source, timestamp, created_at),
         )
         chunk_id = cursor.lastrowid
-        row = connection.execute(
-            "SELECT * FROM audio_chunks WHERE id = ?",
-            (chunk_id,),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM audio_chunks WHERE id = ?", (chunk_id,)).fetchone()
     return dict(row)
 
 
@@ -359,27 +340,13 @@ def delete_sessions_older_than(hours: int) -> int:
         session_ids = sorted({row["id"] for row in session_rows})
         if not session_ids:
             return 0
-        audio_paths = [
-            Path(row["file_path"]) for row in session_rows if row["file_path"]
-        ]
+        audio_paths = [Path(row["file_path"]) for row in session_rows if row["file_path"]]
         placeholders = ",".join(["?"] * len(session_ids))
         # ruff: noqa: S608
-        connection.execute(
-            f"DELETE FROM transcript_chunks WHERE session_id IN ({placeholders})",
-            session_ids,
-        )
-        connection.execute(
-            f"DELETE FROM recaps WHERE session_id IN ({placeholders})",
-            session_ids,
-        )
-        connection.execute(
-            f"DELETE FROM audio_chunks WHERE session_id IN ({placeholders})",
-            session_ids,
-        )
-        connection.execute(
-            f"DELETE FROM sessions WHERE id IN ({placeholders})",
-            session_ids,
-        )
+        connection.execute(f"DELETE FROM transcript_chunks WHERE session_id IN ({placeholders})", session_ids)
+        connection.execute(f"DELETE FROM recaps WHERE session_id IN ({placeholders})", session_ids)
+        connection.execute(f"DELETE FROM audio_chunks WHERE session_id IN ({placeholders})", session_ids)
+        connection.execute(f"DELETE FROM sessions WHERE id IN ({placeholders})", session_ids)
     for audio_path in audio_paths:
         audio_path.unlink(missing_ok=True)
         parent = audio_path.parent

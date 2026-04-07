@@ -14,7 +14,12 @@ async function getActiveTab() {
 }
 
 async function getTranscript(sessionId) {
-  const response = await fetch(`${API_BASE}/session/${sessionId}/transcript`);
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/session/${sessionId}/transcript`);
+  } catch {
+    throw new Error("Unable to reach the SnapBack API. Check that the backend is running.");
+  }
   if (!response.ok) {
     throw new Error(`Transcript request failed with status ${response.status}`);
   }

@@ -1,12 +1,17 @@
 import type { Mode, RecapLength, SessionTranscriptResponse } from "../types";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      ...init,
+    });
+  } catch {
+    throw new Error("Unable to reach the SnapBack API. Check that the backend is running.");
+  }
 
   if (!response.ok) {
     throw new Error((await response.text()) || `Request failed with status ${response.status}`);

@@ -5,8 +5,15 @@ from __future__ import annotations
 import typing
 from textwrap import fill
 
-from fpdf import FPDF
-from notion_client import Client as NotionClient
+try:
+    from fpdf import FPDF
+except Exception:  # pragma: no cover - optional dependency fallback
+    FPDF = None
+
+try:
+    from notion_client import Client as NotionClient
+except Exception:  # pragma: no cover - optional dependency fallback
+    NotionClient = None
 
 if typing.TYPE_CHECKING:
     from typing import Any
@@ -50,9 +57,7 @@ def build_markdown_export(bundle: dict[str, Any]) -> str:
 
     lines.extend(["## Transcript", ""])
     if transcript:
-        lines.extend(
-            f"- [{chunk['timestamp']}] {chunk['text']}" for chunk in transcript
-        )
+        lines.extend(f"- [{chunk['timestamp']}] {chunk['text']}" for chunk in transcript)
     else:
         lines.append("No transcript chunks captured.")
 
@@ -61,6 +66,9 @@ def build_markdown_export(bundle: dict[str, Any]) -> str:
 
 def build_pdf_export(bundle: dict[str, Any]) -> bytes:
     """Build a PDF byte stream from the session bundle."""
+    if FPDF is None:
+        raise RuntimeError("fpdf2 is not installed in this environment.")
+
     session = bundle["session"]
     transcript = bundle["transcript"]
     recaps = bundle["recaps"]
@@ -87,44 +95,25 @@ def build_pdf_export(bundle: dict[str, Any]) -> bytes:
 
     if recaps:
         for recap in recaps:
-            pdf.multi_cell(
-                0,
-                7,
-                fill(
-                    f"{recap['from_timestamp']} to {recap['to_timestamp']}",
-                    width=95,
-                ),
-            )
+            pdf.multi_cell(0, 7, fill(f"{recap['from_timestamp']} to {recap['to_timestamp']}", width=95))
             pdf.multi_cell(0, 7, fill(recap["summary"], width=95))
-            pdf.multi_cell(
-                0,
-                7,
-                fill(
-                    f"Keywords: {', '.join(recap['keywords']) or 'None'}",
-                    width=95,
-                ),
-            )
+            pdf.multi_cell(0, 7, fill(f"Keywords: {', '.join(recap['keywords']) or 'None'}", width=95))
             pdf.ln(2)
     else:
         pdf.multi_cell(0, 7, "No recaps generated yet.")
 
     pdf.multi_cell(0, 8, "Transcript:")
     for chunk in transcript:
-        pdf.multi_cell(
-            0,
-            7,
-            fill(f"[{chunk['timestamp']}] {chunk['text']}", width=95),
-        )
+        pdf.multi_cell(0, 7, fill(f"[{chunk['timestamp']}] {chunk['text']}", width=95))
 
     return bytes(pdf.output(dest="S"))
 
 
-def export_to_notion(
-    bundle: dict[str, Any],
-    api_key: str,
-    page_id: str,
-) -> dict[str, Any]:
+def export_to_notion(bundle: dict[str, Any], api_key: str, page_id: str) -> dict[str, Any]:
     """Export the session bundle to a Notion page."""
+    if NotionClient is None:
+        raise RuntimeError("notion-client is not installed in this environment.")
+
     client = NotionClient(auth=api_key)
     session = bundle["session"]
     transcript = bundle["transcript"]
@@ -135,9 +124,7 @@ def export_to_notion(
             "object": "block",
             "type": "heading_2",
             "heading_2": {
-                "rich_text": [
-                    {"type": "text", "text": {"content": "Lecture Summary"}},
-                ],
+                "rich_text": [{"type": "text", "text": {"content": "Lecture Summary"}}],
             },
         },
         {
@@ -147,12 +134,7 @@ def export_to_notion(
                 "rich_text": [
                     {
                         "type": "text",
-                        "text": {
-                            "content": (
-                                session.get("full_summary")
-                                or "Summary not generated yet."
-                            ),
-                        },
+                        "text": {"content": session.get("full_summary") or "Summary not generated yet."},
                     },
                 ],
             },
@@ -165,9 +147,7 @@ def export_to_notion(
                 "object": "block",
                 "type": "heading_2",
                 "heading_2": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": "Recap History"}},
-                    ],
+                    "rich_text": [{"type": "text", "text": {"content": "Recap History"}}],
                 },
             },
         )
@@ -181,9 +161,7 @@ def export_to_notion(
                             "type": "text",
                             "text": {
                                 "content": (
-                                    f"{recap['from_timestamp']} "
-                                    f"to {recap['to_timestamp']}: "
-                                    f"{recap['summary']}"
+                                    f"{recap['from_timestamp']} to {recap['to_timestamp']}: {recap['summary']}"
                                 ),
                             },
                         },
@@ -203,9 +181,7 @@ def export_to_notion(
         },
     )
 
-    transcript_preview = "\n".join(
-        f"[{chunk['timestamp']}] {chunk['text']}" for chunk in transcript[:50]
-    )
+    transcript_preview = "\n".join(f"[{chunk['timestamp']}] {chunk['text']}" for chunk in transcript[:50])
     children.append(
         {
             "object": "block",
@@ -214,9 +190,7 @@ def export_to_notion(
                 "rich_text": [
                     {
                         "type": "text",
-                        "text": {
-                            "content": transcript_preview or "No transcript.",
-                        },
+                        "text": {"content": transcript_preview or "No transcript."},
                     },
                 ],
             },
@@ -230,11 +204,7 @@ def export_to_notion(
                 "title": [
                     {
                         "type": "text",
-                        "text": {
-                            "content": (
-                                f"SnapBack Session {session['start_timestamp'][:10]}"
-                            ),
-                        },
+                        "text": {"content": f"SnapBack Session {session['start_timestamp'][:10]}"},
                     },
                 ],
             },

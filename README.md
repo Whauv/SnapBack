@@ -34,9 +34,19 @@ snapback/
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
+### Backend Quality Checks
+
+Run the backend tests from the repo root:
+
+```powershell
+python -m unittest discover -s tests
+```
+
 ### Privacy Settings
 
 - `AUTO_DELETE_AFTER_HOURS` controls how long sessions, recaps, transcript chunks, and saved audio files remain on disk.
+- `CORS_ALLOW_ORIGINS` configures which local frontend origins may call the API.
+- `MAX_TRANSCRIPT_CHARS` and `MAX_AUDIO_CHUNK_BYTES` cap request sizes for transcript and audio uploads.
 - `TRANSCRIPTION_MODE=local` enables the `whisper.cpp` privacy path.
 - `WHISPER_BINARY_PATH`, `WHISPER_MODEL_PATH`, `WHISPER_MODEL_URL`, `WHISPER_LANGUAGE`, `WHISPER_THREADS`, and `LOCAL_SEGMENT_SECONDS` tune local transcription.
 
@@ -72,7 +82,9 @@ npm run dev
 
 - FastAPI session lifecycle endpoints
 - SQLite transcript, recap, and audio chunk persistence
+- Input validation for timestamps, session IDs, transcript sizes, and audio upload sizes
 - Groq recap and keyword generation with fallback summaries
+- Backend tests for session flow, recap generation, validation errors, summarizer fallbacks, and alert detection
 - Topic-shift and missed-alert detection
 - PDF, Markdown, and Notion export endpoints
 - AssemblyAI streaming and local `whisper.cpp` transcription client with reconnect, model bootstrap, and CLI startup flow

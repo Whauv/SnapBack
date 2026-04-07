@@ -73,7 +73,7 @@ function startPolling() {
 async function postAudioChunk(base64Audio, mimeType) {
   if (!state.sessionId) return;
   state.chunkIndex += 1;
-  await fetch(`${API_BASE}/session/audio-chunk`, {
+  const response = await fetch(`${API_BASE}/session/audio-chunk`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -85,6 +85,9 @@ async function postAudioChunk(base64Audio, mimeType) {
       source: "chrome-extension",
     }),
   });
+  if (!response.ok) {
+    throw new Error(`Audio relay failed with status ${response.status}`);
+  }
 }
 
 function blobToBase64(blob) {
@@ -168,6 +171,9 @@ async function startSession(payload) {
       recap_length: payload?.recap_length || "standard",
     }),
   });
+  if (!response.ok) {
+    throw new Error(`Session start failed with status ${response.status}`);
+  }
   const data = await response.json();
   state.sessionId = data.session_id;
   state.latestSummary = "";
@@ -195,6 +201,9 @@ async function requestRecap() {
       to_timestamp: new Date().toISOString(),
     }),
   });
+  if (!response.ok) {
+    throw new Error(`Recap request failed with status ${response.status}`);
+  }
   const data = await response.json();
   state.latestSummary = data.summary || "";
   state.latestKeywords = data.keywords || [];

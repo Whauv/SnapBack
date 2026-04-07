@@ -1,9 +1,5 @@
-import jsPDF from "jspdf";
-import MarkdownIt from "markdown-it";
 import type { Recap, SessionRecord, TranscriptChunk } from "./types";
 import { formatTimestamp } from "./utils";
-
-const markdownEngine = new MarkdownIt();
 
 type ExportPayload = {
   session: SessionRecord | null;
@@ -53,9 +49,7 @@ function buildMarkdown(payload: ExportPayload) {
     lines.push("No transcript available.");
   }
 
-  const markdown = lines.join("\n");
-  markdownEngine.render(markdown);
-  return markdown;
+  return lines.join("\n");
 }
 
 export function exportMarkdownNotes(payload: ExportPayload) {
@@ -69,7 +63,8 @@ export function exportMarkdownNotes(payload: ExportPayload) {
   URL.revokeObjectURL(url);
 }
 
-export function exportPdfNotes(payload: ExportPayload) {
+export async function exportPdfNotes(payload: ExportPayload) {
+  const { jsPDF } = await import("jspdf");
   const { session, transcript, recaps, fullSummary } = payload;
   const pdf = new jsPDF();
   let cursorY = 16;

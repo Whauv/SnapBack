@@ -45,14 +45,12 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
         mode: Mode;
         recapLength: RecapLength;
         language: string;
-        notionApiKey: string;
         notionPageId: string;
         darkMode: boolean;
       }>;
       if (parsed.mode) setMode(parsed.mode);
       if (parsed.recapLength) setRecapLength(parsed.recapLength);
       if (parsed.language) setLanguage(parsed.language);
-      if (parsed.notionApiKey) setNotionApiKey(parsed.notionApiKey);
       if (parsed.notionPageId) setNotionPageId(parsed.notionPageId);
       if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
     } catch {
@@ -63,9 +61,9 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
   useEffect(() => {
     window.localStorage.setItem(
       settingsStorageKey,
-      JSON.stringify({ mode, recapLength, language, notionApiKey, notionPageId, darkMode }),
+      JSON.stringify({ mode, recapLength, language, notionPageId, darkMode }),
     );
-  }, [darkMode, language, mode, notionApiKey, notionPageId, recapLength, settingsStorageKey]);
+  }, [darkMode, language, mode, notionPageId, recapLength, settingsStorageKey]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);

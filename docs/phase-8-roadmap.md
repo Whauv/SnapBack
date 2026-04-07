@@ -27,7 +27,7 @@ Scope:
 - course entity and course-linked sessions
 - week-by-week lecture summaries
 - search across past sessions
-- “what did we cover last class?” quick answer flow
+- "what did we cover last class?" quick answer flow
 
 ## Milestone 3: High-Signal Lecture Detection
 
@@ -57,7 +57,7 @@ Scope:
 - export study pack to Markdown/PDF
 - spaced-repetition friendly flashcard export
 - quiz mode in the panel
-- “review weak areas” workflow
+- "review weak areas" workflow
 
 ## Implementation Order
 
