@@ -5,3 +5,4 @@ __pycache__/
 data/
 apps/zoom-app/node_modules/
 apps/zoom-app/dist/
+apps/zoom-app/tsconfig.tsbuildinfo

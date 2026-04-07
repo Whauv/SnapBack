@@ -56,6 +56,7 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
+                owner_id TEXT,
                 start_timestamp TEXT NOT NULL,
                 end_timestamp TEXT,
                 full_summary TEXT,
@@ -108,11 +109,26 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_audio_chunks_session_created_at
             ON audio_chunks(session_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at
+            ON sessions(owner_id, updated_at, id);
             """
         )
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "owner_id" not in columns:
+            connection.execute("ALTER TABLE sessions ADD COLUMN owner_id TEXT")
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_sessions_owner_updated_at
+                ON sessions(owner_id, updated_at, id)
+                """
+            )
 
 
-def create_session(mode: str, language: str, recap_length: str) -> dict[str, Any]:
+def create_session(owner_id: str, mode: str, language: str, recap_length: str) -> dict[str, Any]:
     """Create a new session."""
     session_id = str(uuid.uuid4())
     now = utc_now_iso()
@@ -120,20 +136,26 @@ def create_session(mode: str, language: str, recap_length: str) -> dict[str, Any
         connection.execute(
             """
             INSERT INTO sessions (
-                id, start_timestamp, mode, language,
+                id, owner_id, start_timestamp, mode, language,
                 recap_length, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, now, mode, language, recap_length, now, now),
+            (session_id, owner_id, now, mode, language, recap_length, now, now),
         )
-    return get_session(session_id)
+    return get_session(session_id, owner_id=owner_id)
 
 
-def get_session(session_id: str) -> dict[str, Any] | None:
+def get_session(session_id: str, owner_id: str | None = None) -> dict[str, Any] | None:
     """Get a session by ID."""
     with get_connection() as connection:
-        row = connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        if owner_id is None:
+            row = connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        else:
+            row = connection.execute(
+                "SELECT * FROM sessions WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)",
+                (session_id, owner_id),
+            ).fetchone()
     return dict(row) if row else None
 
 
@@ -364,9 +386,9 @@ class SessionBundle:
     recaps: list[dict[str, Any]]
 
 
-def get_session_bundle(session_id: str) -> SessionBundle | None:
+def get_session_bundle(session_id: str, owner_id: str | None = None) -> SessionBundle | None:
     """Retrieve all data associated with a session ID as a SessionBundle."""
-    session = get_session(session_id)
+    session = get_session(session_id, owner_id=owner_id)
     if not session:
         return None
     return SessionBundle(

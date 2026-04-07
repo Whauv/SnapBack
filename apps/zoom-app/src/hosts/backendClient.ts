@@ -1,4 +1,5 @@
 import type { Mode, RecapLength, SessionTranscriptResponse } from "../types";
+import { buildApiHeaders } from "./auth";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() || "http://localhost:8000";
 
@@ -6,7 +7,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      headers: buildApiHeaders({ "Content-Type": "application/json", ...(init?.headers ?? {}) }),
       ...init,
     });
   } catch {
@@ -14,6 +15,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("SnapBack API authentication failed. Update the API token in Settings.");
+    }
+    if (response.status === 429) {
+      throw new Error("SnapBack is temporarily rate limited. Please wait a moment and try again.");
+    }
     throw new Error((await response.text()) || `Request failed with status ${response.status}`);
   }
 
@@ -61,10 +68,13 @@ export async function createBackendRecap(sessionId: string, fromTimestamp: strin
 export async function exportSessionFile(type: "pdf" | "markdown", sessionId: string) {
   const response = await fetch(`${API_BASE}/export/${type}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildApiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ session_id: sessionId }),
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error("SnapBack API authentication failed. Update the API token in Settings.");
+    }
     throw new Error(`Export failed with status ${response.status}`);
   }
   return response.blob();
