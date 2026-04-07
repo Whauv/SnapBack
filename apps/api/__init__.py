@@ -1,1 +1,1 @@
-
+"""API endpoints for SnapBack."""

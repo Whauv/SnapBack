@@ -1,3 +1,5 @@
+"""API endpoints for SnapBack."""
+
 from __future__ import annotations
 
 import base64
@@ -7,7 +9,10 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -21,15 +26,19 @@ except Exception:  # pragma: no cover - optional dependency fallback
 
         def shutdown(self, wait: bool = False) -> None:
             return None
+
+
 try:
     from dotenv import load_dotenv
 except Exception:  # pragma: no cover - optional dependency fallback
     def load_dotenv(*args: Any, **kwargs: Any) -> bool:
         return False
+
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from services.analysis.detector import detect_missed_alerts, detect_topic_shift
 from services.analysis.summarizer import GroqSummarizer
@@ -109,6 +118,9 @@ summarizer = GroqSummarizer(api_key=settings.groq_api_key)
 
 
 class SessionStartRequest(BaseModel):
+    """Request to start a new session."""
+
+    model_config = ConfigDict(extra="forbid")
     mode: Literal["cloud", "local"] = "cloud"
     language: str = Field(default="English", min_length=2, max_length=32)
     recap_length: Literal["brief", "standard", "detailed"] = "standard"
@@ -120,6 +132,9 @@ class SessionStartRequest(BaseModel):
 
 
 class TranscriptChunkRequest(BaseModel):
+    """Request to ingest a transcript chunk."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
     text: str = Field(min_length=1, max_length=MAX_TRANSCRIPT_CHARS)
     timestamp: str
@@ -141,6 +156,9 @@ class TranscriptChunkRequest(BaseModel):
 
 
 class RecapRequest(BaseModel):
+    """Request to generate a recap for a time window."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
     from_timestamp: str
     to_timestamp: str
@@ -157,6 +175,9 @@ class RecapRequest(BaseModel):
 
 
 class SessionEndRequest(BaseModel):
+    """Request to end a session."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
 
     @field_validator("session_id")
@@ -166,6 +187,9 @@ class SessionEndRequest(BaseModel):
 
 
 class ExportRequest(BaseModel):
+    """Request to export a session."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
 
     @field_validator("session_id")
@@ -175,6 +199,9 @@ class ExportRequest(BaseModel):
 
 
 class AudioChunkRequest(BaseModel):
+    """Request to ingest an audio chunk."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
     chunk_index: int = Field(ge=0, le=1_000_000)
     mime_type: str = Field(min_length=1, max_length=64)
@@ -202,6 +229,9 @@ class AudioChunkRequest(BaseModel):
 
 
 class NotionExportRequest(BaseModel):
+    """Request to export a session to Notion."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
     page_id: str = Field(min_length=1, max_length=128)
     notion_api_key: str | None = Field(default=None, max_length=256)
@@ -213,6 +243,9 @@ class NotionExportRequest(BaseModel):
 
 
 class StudyPackRequest(BaseModel):
+    """Request to generate a study pack."""
+
+    model_config = ConfigDict(extra="forbid")
     session_id: str = Field(min_length=1, max_length=64)
 
     @field_validator("session_id")
@@ -245,7 +278,8 @@ def _extension_for_mime_type(mime_type: str) -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Handle application lifespan events."""
     init_db()
     scheduler.add_job(
         delete_sessions_older_than,
@@ -279,11 +313,13 @@ def root_redirect() -> RedirectResponse:
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
+    """Check the health of the API."""
     return {"status": "ok"}
 
 
 @app.post("/session/start")
 def start_session(payload: SessionStartRequest) -> dict[str, Any]:
+    """Start a new session."""
     session = create_session(payload.mode, payload.language, payload.recap_length)
     logger.info("Started session %s in %s mode", session["id"], payload.mode)
     return {"session_id": session["id"], "start_timestamp": session["start_timestamp"], "session": session}
@@ -291,6 +327,7 @@ def start_session(payload: SessionStartRequest) -> dict[str, Any]:
 
 @app.post("/session/transcript")
 def ingest_transcript(payload: TranscriptChunkRequest) -> dict[str, Any]:
+    """Ingest a transcript chunk into the database."""
     _ensure_session_exists(payload.session_id)
     chunk = append_transcript_chunk(payload.session_id, payload.text, payload.timestamp)
     return {"chunk": chunk}
@@ -298,6 +335,7 @@ def ingest_transcript(payload: TranscriptChunkRequest) -> dict[str, Any]:
 
 @app.post("/session/audio-chunk")
 def ingest_audio_chunk(payload: AudioChunkRequest) -> dict[str, Any]:
+    """Ingest an audio chunk and save it to the disk."""
     _ensure_session_exists(payload.session_id)
 
     try:
@@ -317,7 +355,7 @@ def ingest_audio_chunk(payload: AudioChunkRequest) -> dict[str, Any]:
     file_path.write_bytes(audio_bytes)
 
     chunk = save_audio_chunk(
-        payload.session_id,
+        session_id=payload.session_id,
         chunk_index=payload.chunk_index,
         mime_type=payload.mime_type,
         file_path=str(file_path),
@@ -329,6 +367,7 @@ def ingest_audio_chunk(payload: AudioChunkRequest) -> dict[str, Any]:
 
 @app.post("/recap")
 def generate_recap(payload: RecapRequest) -> dict[str, Any]:
+    """Generate a recap for a specific time window within a session."""
     session = _ensure_session_exists(payload.session_id)
     if payload.from_timestamp > payload.to_timestamp:
         raise HTTPException(status_code=400, detail="from_timestamp must be earlier than to_timestamp.")
@@ -350,13 +389,13 @@ def generate_recap(payload: RecapRequest) -> dict[str, Any]:
     )
     missed_alerts = detect_missed_alerts(chunks)
     recap = save_recap(
-        payload.session_id,
-        payload.from_timestamp,
-        payload.to_timestamp,
-        summary,
-        keywords,
-        topic_shift_detected,
-        missed_alerts,
+        session_id=payload.session_id,
+        from_timestamp=payload.from_timestamp,
+        to_timestamp=payload.to_timestamp,
+        summary=summary,
+        keywords=keywords,
+        topic_shift_detected=topic_shift_detected,
+        missed_alerts=missed_alerts,
     )
     return {
         "summary": summary,
@@ -373,6 +412,7 @@ def generate_recap(payload: RecapRequest) -> dict[str, Any]:
 
 @app.get("/session/{session_id}/transcript")
 def get_session_transcript(session_id: str) -> dict[str, Any]:
+    """Get the full transcript and metadata for a session."""
     session = _ensure_session_exists(session_id)
     return {
         "session": session,
@@ -383,6 +423,7 @@ def get_session_transcript(session_id: str) -> dict[str, Any]:
 
 @app.post("/session/end")
 def complete_session(payload: SessionEndRequest) -> dict[str, Any]:
+    """Complete a session and generate a full summary."""
     session = _ensure_session_exists(payload.session_id)
     transcript = get_transcript(payload.session_id)
     transcript_text = "\n".join(chunk["text"] for chunk in transcript)
@@ -394,6 +435,7 @@ def complete_session(payload: SessionEndRequest) -> dict[str, Any]:
 
 @app.post("/export/pdf")
 def export_pdf(payload: ExportRequest) -> Response:
+    """Export the session as a PDF document."""
     bundle = _build_bundle_or_404(payload.session_id)
     pdf_bytes = build_pdf_export({"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps})
     headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.pdf"'}
@@ -402,16 +444,16 @@ def export_pdf(payload: ExportRequest) -> Response:
 
 @app.post("/export/markdown")
 def export_markdown(payload: ExportRequest) -> Response:
+    """Export the session as a Markdown document."""
     bundle = _build_bundle_or_404(payload.session_id)
-    markdown = build_markdown_export(
-        {"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps}
-    )
+    markdown = build_markdown_export({"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps})
     headers = {"Content-Disposition": f'attachment; filename="snapback-{payload.session_id}.md"'}
     return Response(content=markdown, media_type="text/markdown; charset=utf-8", headers=headers)
 
 
 @app.post("/export/notion")
 def export_notion(payload: NotionExportRequest) -> dict[str, Any]:
+    """Export the session to a Notion page."""
     bundle = _build_bundle_or_404(payload.session_id)
     api_key = payload.notion_api_key or settings.notion_api_key
     if not api_key:
@@ -425,13 +467,11 @@ def export_notion(payload: NotionExportRequest) -> dict[str, Any]:
 
 @app.post("/study/pack")
 def generate_study_pack(payload: StudyPackRequest) -> dict[str, Any]:
+    """Generate a study pack for a session."""
     bundle = _build_bundle_or_404(payload.session_id)
     transcript_text = "\n".join(chunk["text"] for chunk in bundle.transcript)
     study_pack = summarizer.generate_study_pack(
         transcript_text,
         language=bundle.session.get("language", "English"),
     )
-    return {
-        "session_id": payload.session_id,
-        "study_pack": study_pack,
-    }
+    return {"session_id": payload.session_id, "study_pack": study_pack}

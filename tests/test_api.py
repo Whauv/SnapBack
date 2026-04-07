@@ -156,6 +156,7 @@ class ApiFlowTests(unittest.TestCase):
 
         pydantic_module = types.ModuleType("pydantic")
         pydantic_module.BaseModel = BaseModel
+        pydantic_module.ConfigDict = dict
         pydantic_module.Field = Field
         pydantic_module.ValidationError = ValidationError
         pydantic_module.field_validator = field_validator

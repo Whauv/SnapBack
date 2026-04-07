@@ -1,1 +1,1 @@
-
+"""API application for SnapBack."""

@@ -1,3 +1,5 @@
+"""Database storage for SnapBack sessions and data."""
+
 from __future__ import annotations
 
 import json
@@ -9,14 +11,17 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 
 def utc_now_iso() -> str:
+    """Return the current time in ISO 8601 format (UTC)."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -26,11 +31,13 @@ def get_db_path() -> Path:
 
 
 def ensure_parent_dir() -> None:
+    """Ensure the directory for the database file exists."""
     get_db_path().parent.mkdir(parents=True, exist_ok=True)
 
 
 @contextmanager
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
+    """Provide a transactional scope around database operations."""
     ensure_parent_dir()
     connection = sqlite3.connect(get_db_path())
     connection.row_factory = sqlite3.Row
@@ -43,6 +50,7 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
 
 
 def init_db() -> None:
+    """Initialize the database schema."""
     with get_connection() as connection:
         connection.executescript(
             """
@@ -105,12 +113,16 @@ def init_db() -> None:
 
 
 def create_session(mode: str, language: str, recap_length: str) -> dict[str, Any]:
+    """Create a new session."""
     session_id = str(uuid.uuid4())
     now = utc_now_iso()
     with get_connection() as connection:
         connection.execute(
             """
-            INSERT INTO sessions (id, start_timestamp, mode, language, recap_length, created_at, updated_at)
+            INSERT INTO sessions (
+                id, start_timestamp, mode, language,
+                recap_length, created_at, updated_at
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (session_id, now, mode, language, recap_length, now, now),
@@ -119,15 +131,14 @@ def create_session(mode: str, language: str, recap_length: str) -> dict[str, Any
 
 
 def get_session(session_id: str) -> dict[str, Any] | None:
+    """Get a session by ID."""
     with get_connection() as connection:
-        row = connection.execute(
-            "SELECT * FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
+        row = connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
     return dict(row) if row else None
 
 
 def end_session(session_id: str, full_summary: str) -> dict[str, Any] | None:
+    """End a session with a full summary."""
     now = utc_now_iso()
     with get_connection() as connection:
         connection.execute(
@@ -142,6 +153,7 @@ def end_session(session_id: str, full_summary: str) -> dict[str, Any] | None:
 
 
 def append_transcript_chunk(session_id: str, text: str, timestamp: str) -> dict[str, Any]:
+    """Append a transcript chunk to the session."""
     created_at = utc_now_iso()
     with get_connection() as connection:
         cursor = connection.execute(
@@ -152,18 +164,13 @@ def append_transcript_chunk(session_id: str, text: str, timestamp: str) -> dict[
             (session_id, text, timestamp, created_at),
         )
         chunk_id = cursor.lastrowid
-        connection.execute(
-            "UPDATE sessions SET updated_at = ? WHERE id = ?",
-            (created_at, session_id),
-        )
-        row = connection.execute(
-            "SELECT * FROM transcript_chunks WHERE id = ?",
-            (chunk_id,),
-        ).fetchone()
+        connection.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (created_at, session_id))
+        row = connection.execute("SELECT * FROM transcript_chunks WHERE id = ?", (chunk_id,)).fetchone()
     return dict(row)
 
 
 def get_transcript(session_id: str) -> list[dict[str, Any]]:
+    """Get the full transcript for the session."""
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -178,6 +185,7 @@ def get_transcript(session_id: str) -> list[dict[str, Any]]:
 
 
 def get_transcript_window(session_id: str, from_timestamp: str, to_timestamp: str) -> list[dict[str, Any]]:
+    """Get transcript chunks within the timestamp window."""
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -194,6 +202,7 @@ def get_transcript_window(session_id: str, from_timestamp: str, to_timestamp: st
 
 
 def get_last_chunk_before(session_id: str, timestamp: str) -> dict[str, Any] | None:
+    """Get the last transcript chunk before the given timestamp."""
     with get_connection() as connection:
         row = connection.execute(
             """
@@ -210,6 +219,7 @@ def get_last_chunk_before(session_id: str, timestamp: str) -> dict[str, Any] | N
 
 
 def get_first_chunk_after(session_id: str, timestamp: str) -> dict[str, Any] | None:
+    """Get the first transcript chunk after the given timestamp."""
     with get_connection() as connection:
         row = connection.execute(
             """
@@ -226,6 +236,7 @@ def get_first_chunk_after(session_id: str, timestamp: str) -> dict[str, Any] | N
 
 
 def save_recap(
+    *,
     session_id: str,
     from_timestamp: str,
     to_timestamp: str,
@@ -234,6 +245,8 @@ def save_recap(
     topic_shift_detected: bool,
     missed_alerts: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    # ruff: noqa: PLR0913
+    """Save a recap for the session."""
     created_at = utc_now_iso()
     with get_connection() as connection:
         cursor = connection.execute(
@@ -261,6 +274,7 @@ def save_recap(
 
 
 def get_recaps(session_id: str) -> list[dict[str, Any]]:
+    """Get all recaps for the session."""
     with get_connection() as connection:
         rows = connection.execute(
             """
@@ -274,6 +288,7 @@ def get_recaps(session_id: str) -> list[dict[str, Any]]:
 
 
 def hydrate_recap(row: dict[str, Any]) -> dict[str, Any]:
+    """Hydrate a recap row from the database."""
     row["keywords"] = json.loads(row.pop("keywords_json", "[]"))
     row["topic_shift_detected"] = bool(row["topic_shift_detected"])
     row["missed_alerts"] = json.loads(row.pop("missed_alerts_json", "[]"))
@@ -281,6 +296,7 @@ def hydrate_recap(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_audio_chunk(
+    *,
     session_id: str,
     chunk_index: int,
     mime_type: str,
@@ -288,11 +304,16 @@ def save_audio_chunk(
     timestamp: str,
     source: str = "extension",
 ) -> dict[str, Any]:
+    # ruff: noqa: PLR0913
+    """Save an audio chunk for the session."""
     created_at = utc_now_iso()
     with get_connection() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO audio_chunks (session_id, chunk_index, mime_type, file_path, source, timestamp, created_at)
+            INSERT INTO audio_chunks (
+                session_id, chunk_index, mime_type, file_path,
+                source, timestamp, created_at
+            )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (session_id, chunk_index, mime_type, file_path, source, timestamp, created_at),
@@ -303,6 +324,7 @@ def save_audio_chunk(
 
 
 def delete_sessions_older_than(hours: int) -> int:
+    """Delete sessions and associated data older than the specified hours."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_iso = cutoff.isoformat()
     with get_connection() as connection:
@@ -320,6 +342,7 @@ def delete_sessions_older_than(hours: int) -> int:
             return 0
         audio_paths = [Path(row["file_path"]) for row in session_rows if row["file_path"]]
         placeholders = ",".join(["?"] * len(session_ids))
+        # ruff: noqa: S608
         connection.execute(f"DELETE FROM transcript_chunks WHERE session_id IN ({placeholders})", session_ids)
         connection.execute(f"DELETE FROM recaps WHERE session_id IN ({placeholders})", session_ids)
         connection.execute(f"DELETE FROM audio_chunks WHERE session_id IN ({placeholders})", session_ids)
@@ -334,12 +357,15 @@ def delete_sessions_older_than(hours: int) -> int:
 
 @dataclass
 class SessionBundle:
+    """A bundle of all information related to a session."""
+
     session: dict[str, Any]
     transcript: list[dict[str, Any]]
     recaps: list[dict[str, Any]]
 
 
 def get_session_bundle(session_id: str) -> SessionBundle | None:
+    """Retrieve all data associated with a session ID as a SessionBundle."""
     session = get_session(session_id)
     if not session:
         return None

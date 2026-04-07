@@ -1,1 +1,1 @@
-
+"""Storage service for SnapBack."""
