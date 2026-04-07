@@ -17,6 +17,32 @@ let extensionState = null;
 let timerInterval = null;
 let pendingSessionStart = false;
 
+function createElement(tagName, options = {}) {
+  const node = document.createElement(tagName);
+  if (options.className) node.className = options.className;
+  if (options.textContent) node.textContent = options.textContent;
+  return node;
+}
+
+function renderKeywordBadges(keywords) {
+  keywordsNode.replaceChildren();
+  for (const keyword of keywords || []) {
+    keywordsNode.appendChild(createElement("span", { textContent: keyword }));
+  }
+}
+
+function renderTranscriptEntries(entries) {
+  transcriptNode.replaceChildren();
+  for (const entry of entries) {
+    const paragraph = createElement("p");
+    const strong = createElement("strong", { textContent: formatTime(entry.timestamp) });
+    paragraph.appendChild(strong);
+    paragraph.appendChild(document.createElement("br"));
+    paragraph.appendChild(document.createTextNode(entry.text));
+    transcriptNode.appendChild(paragraph);
+  }
+}
+
 function formatDuration(totalSeconds) {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -30,16 +56,14 @@ function formatTime(value) {
 
 async function refreshTranscript() {
   if (!extensionState?.sessionId) {
-    transcriptNode.innerHTML = "";
+    transcriptNode.replaceChildren();
     transcriptCountNode.textContent = "0 chunks";
     return;
   }
 
   const data = await host.getTranscript(extensionState.sessionId);
   transcriptCountNode.textContent = `${data.transcript.length} chunks`;
-  transcriptNode.innerHTML = data.transcript
-    .map((entry) => `<p><strong>${formatTime(entry.timestamp)}</strong><br/>${entry.text}</p>`)
-    .join("");
+  renderTranscriptEntries(data.transcript);
 }
 
 function renderState() {
@@ -47,7 +71,7 @@ function renderState() {
   sessionStatusNode.textContent = state.sessionId ? `Live session ${state.sessionId.slice(0, 8)}` : "Inactive";
   captureStatusNode.textContent = state.captureStatus || "idle";
   summaryNode.textContent = state.latestSummary || "Waiting for your first recap.";
-  keywordsNode.innerHTML = (state.latestKeywords || []).map((keyword) => `<span>${keyword}</span>`).join("");
+  renderKeywordBadges(state.latestKeywords);
   transcriptCountNode.textContent = `${state.transcriptCount || 0} chunks`;
 
   if (timerInterval) clearInterval(timerInterval);

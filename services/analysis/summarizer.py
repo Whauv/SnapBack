@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 
-from groq import Groq
+try:
+    from groq import Groq
+except Exception:  # pragma: no cover - optional dependency fallback
+    Groq = None
 
+logger = logging.getLogger(__name__)
 
 SUMMARY_SYSTEM_PROMPT = (
     "You are a student assistant. Given a segment of a lecture transcript, generate a "
@@ -37,20 +42,24 @@ class GroqSummarizer:
     def __init__(self, api_key: str | None, model: str = "llama-3.3-70b-versatile") -> None:
         self.api_key = api_key
         self.model = model
-        self.client = Groq(api_key=api_key) if api_key else None
+        self.client = Groq(api_key=api_key) if api_key and Groq is not None else None
 
     def _chat(self, system_prompt: str, user_prompt: str, temperature: float = 0.2) -> str:
         if not self.client:
             return ""
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        return response.choices[0].message.content.strip()
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+        except Exception:
+            logger.exception("Groq chat completion failed")
+            return ""
+        return (response.choices[0].message.content or "").strip()
 
     def generate_summary(self, transcript_text: str, language: str = "English", recap_length: str = "standard") -> str:
         if not transcript_text.strip():
@@ -124,7 +133,7 @@ class GroqSummarizer:
         parsed = _safe_json_object(response)
         if not parsed:
             return self._fallback_study_pack(transcript_text)
-        return {
+        study_pack = {
             "outline": [str(item).strip() for item in parsed.get("outline", []) if str(item).strip()],
             "flashcards": [
                 {
@@ -147,6 +156,9 @@ class GroqSummarizer:
                 str(item).strip() for item in parsed.get("review_priorities", []) if str(item).strip()
             ],
         }
+        if not any(study_pack.values()):
+            return self._fallback_study_pack(transcript_text)
+        return study_pack
 
     @staticmethod
     def _fallback_summary(transcript_text: str, max_sentences: int = 3) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 import uuid
@@ -12,23 +13,29 @@ from typing import Any, Generator
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "data" / "snapback.db"
+DEFAULT_DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def get_db_path() -> Path:
+    configured_path = os.getenv("SNAPBACK_DB_PATH")
+    return Path(configured_path).expanduser().resolve() if configured_path else DEFAULT_DB_PATH
+
+
 def ensure_parent_dir() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    get_db_path().parent.mkdir(parents=True, exist_ok=True)
 
 
 @contextmanager
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
     ensure_parent_dir()
-    connection = sqlite3.connect(DB_PATH)
+    connection = sqlite3.connect(get_db_path())
     connection.row_factory = sqlite3.Row
     try:
+        connection.execute("PRAGMA foreign_keys = ON")
         yield connection
         connection.commit()
     finally:
@@ -57,7 +64,7 @@ def init_db() -> None:
                 text TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS recaps (
@@ -70,7 +77,7 @@ def init_db() -> None:
                 topic_shift_detected INTEGER NOT NULL DEFAULT 0,
                 missed_alerts_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS audio_chunks (
@@ -82,8 +89,17 @@ def init_db() -> None:
                 source TEXT NOT NULL DEFAULT 'extension',
                 timestamp TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES sessions(id)
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
+
+            CREATE INDEX IF NOT EXISTS idx_transcript_chunks_session_timestamp
+            ON transcript_chunks(session_id, timestamp, id);
+
+            CREATE INDEX IF NOT EXISTS idx_recaps_session_created_at
+            ON recaps(session_id, created_at, id);
+
+            CREATE INDEX IF NOT EXISTS idx_audio_chunks_session_created_at
+            ON audio_chunks(session_id, created_at, id);
             """
         )
 

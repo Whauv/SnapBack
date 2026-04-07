@@ -3,8 +3,14 @@ from __future__ import annotations
 from textwrap import fill
 from typing import Any
 
-from fpdf import FPDF
-from notion_client import Client as NotionClient
+try:
+    from fpdf import FPDF
+except Exception:  # pragma: no cover - optional dependency fallback
+    FPDF = None
+try:
+    from notion_client import Client as NotionClient
+except Exception:  # pragma: no cover - optional dependency fallback
+    NotionClient = None
 
 
 def build_markdown_export(bundle: dict[str, Any]) -> str:
@@ -53,6 +59,8 @@ def build_markdown_export(bundle: dict[str, Any]) -> str:
 
 
 def build_pdf_export(bundle: dict[str, Any]) -> bytes:
+    if FPDF is None:
+        raise RuntimeError("fpdf2 is not installed in this environment.")
     session = bundle["session"]
     transcript = bundle["transcript"]
     recaps = bundle["recaps"]
@@ -94,6 +102,8 @@ def build_pdf_export(bundle: dict[str, Any]) -> bytes:
 
 
 def export_to_notion(bundle: dict[str, Any], api_key: str, page_id: str) -> dict[str, Any]:
+    if NotionClient is None:
+        raise RuntimeError("notion-client is not installed in this environment.")
     client = NotionClient(auth=api_key)
     session = bundle["session"]
     transcript = bundle["transcript"]
