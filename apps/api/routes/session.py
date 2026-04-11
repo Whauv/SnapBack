@@ -2,7 +2,12 @@
 
 from fastapi import Request
 
-from apps.api.dependencies import get_request_principal, logger, session_service, settings
+from apps.api.dependencies import (
+    get_request_principal,
+    logger,
+    session_service,
+    settings,
+)
 from apps.api.routes._compat import APIRouter
 from services.api.contracts import (
     AudioChunkRequest,
