@@ -10,6 +10,9 @@ snapback/
 |   |-- api/                  # FastAPI entrypoint and app startup
 |   |-- zoom-app/             # React panel shell
 |   `-- meet-extension/       # Google Meet Chrome extension
+|-- tests/
+|   |-- apps/                # tests mirrored to app surfaces
+|   `-- services/            # tests mirrored to backend services
 |-- services/
 |   |-- analysis/             # recap intelligence, topic shift, summarization
 |   |-- api/                  # auth, settings, rate limiting, session orchestration
@@ -21,13 +24,16 @@ snapback/
 |-- docs/
 |   `-- phase-8-roadmap.md    # upcoming roadmap
 |-- data/                     # runtime database/audio output
+|-- .github/                  # CI workflow and collaboration templates
 `-- .gitignore
 ```
+
+Each major folder now includes its own `README.md` so the structure can be navigated quickly without opening code first.
 
 ## Backend Setup
 
 1. Create a virtual environment and install dependencies from [`apps/api/requirements.txt`](/Users/prana/OneDrive/Documents/Playground/snapback/apps/api/requirements.txt).
-2. Copy [`config/env/.env.example`](/Users/prana/OneDrive/Documents/Playground/snapback/config/env/.env.example) to `config/env/.env`.
+2. Copy either [`.env.example`](/Users/prana/OneDrive/Documents/Playground/snapback/.env.example) or [`config/env/.env.example`](/Users/prana/OneDrive/Documents/Playground/snapback/config/env/.env.example) to `config/env/.env`.
 3. Add your AssemblyAI, Groq, and Notion keys to `config/env/.env`.
 4. Set `SNAPBACK_API_TOKENS`. The default local token is `local-dev:snapback-local-dev-token`.
 5. Start the API from the repo root:
@@ -41,7 +47,7 @@ uvicorn apps.api.main:app --reload --port 8000
 Run the backend tests from the repo root:
 
 ```powershell
-python -m unittest discover -s tests
+python -m unittest discover -s tests -t .
 ```
 
 Run the frontend production build from [`apps/zoom-app`](/Users/prana/OneDrive/Documents/Playground/snapback/apps/zoom-app):
@@ -53,7 +59,7 @@ npm.cmd run build
 Run the extension contract test from the repo root:
 
 ```powershell
-node --test apps/meet-extension/host-adapter.test.mjs
+node --test tests/apps/meet_extension/host-adapter.test.mjs
 ```
 
 ### Privacy Settings
@@ -98,6 +104,12 @@ The panel uses the same API token contract as the backend. Leave the default loc
 1. Open `chrome://extensions`.
 2. Enable Developer Mode.
 3. Load unpacked extension from [`apps/meet-extension`](/Users/prana/OneDrive/Documents/Playground/snapback/apps/meet-extension).
+
+## Repository Automation
+
+- [`Makefile`](/Users/prana/OneDrive/Documents/Playground/snapback/Makefile) provides shared lint, build, and test shortcuts.
+- [`.github/workflows/ci.yml`](/Users/prana/OneDrive/Documents/Playground/snapback/.github/workflows/ci.yml) runs Ruff, backend tests, the Zoom app production build, and the Meet extension contract test on GitHub Actions.
+- [`AGENTS.md`](/Users/prana/OneDrive/Documents/Playground/snapback/AGENTS.md) documents the repo map, setup, and validation commands for contributors and coding agents.
 
 ## Implemented Features
 

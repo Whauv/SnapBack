@@ -14,10 +14,10 @@ build-zoom:
 	cd apps/zoom-app && npm install && npm run build
 
 test-backend:
-	python -m unittest discover -s tests
+	python -m unittest discover -s tests -t .
 
 test-extension:
-	node --test apps/meet-extension/host-adapter.test.mjs
+	node --test tests/apps/meet_extension/host-adapter.test.mjs
 
 clean:
 	rm -rf .ruff_cache
