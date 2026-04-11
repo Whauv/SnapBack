@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.5"
+      - name: Install system audio dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev libasound2-dev
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt ruff
+      - name: Lint Python
+        run: ruff check .
+      - name: Run backend tests
+        run: python -m unittest discover -s tests -t .
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.1"
+          cache: "npm"
+          cache-dependency-path: apps/zoom-app/package-lock.json
+      - name: Install Zoom app dependencies
+        working-directory: apps/zoom-app
+        run: npm ci
+      - name: Build Zoom app
+        working-directory: apps/zoom-app
+        run: npm run build
+      - name: Run Meet extension contract tests
+        run: node --test tests/apps/meet_extension/host-adapter.test.mjs

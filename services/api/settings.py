@@ -57,7 +57,7 @@ class AppSettings:
         return self.app_env.lower() == "production"
 
     @classmethod
-    def from_env(cls) -> "AppSettings":
+    def from_env(cls) -> AppSettings:
         app_env = os.getenv("APP_ENV", "development").strip().lower()
         allow_dev_default = app_env != "production"
         api_tokens = parse_token_map(

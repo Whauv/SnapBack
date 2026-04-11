@@ -13,7 +13,11 @@ from services.analysis.detector import detect_missed_alerts, detect_topic_shift
 from services.analysis.summarizer import GroqSummarizer
 from services.api.auth import AuthenticatedPrincipal
 from services.api.settings import AppSettings
-from services.exporters.export import build_markdown_export, build_pdf_export, export_to_notion
+from services.exporters.export import (
+    build_markdown_export,
+    build_pdf_export,
+    export_to_notion,
+)
 from services.storage.database import (
     append_transcript_chunk,
     create_session,
@@ -28,7 +32,6 @@ from services.storage.database import (
     save_audio_chunk,
     save_recap,
 )
-
 
 SUPPORTED_AUDIO_MIME_TYPES = {"audio/webm", "audio/wav", "audio/mp4", "application/octet-stream"}
 

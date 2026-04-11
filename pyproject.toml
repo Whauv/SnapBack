@@ -1,8 +1,8 @@
 [tool.ruff]
 
 [tool.ruff.lint]
-# D203 and D211 are mutually exclusive
-# D212 and D213 are mutually exclusive
-# COM812 is recommended to be disabled when using the formatter
-ignore = ["D203", "D213", "COM812"]
-select = ["ALL"]
+# Enforce a stable CI baseline on the existing codebase:
+# - F catches unresolved names and other correctness issues
+# - I keeps imports consistent
+# - UP applies safe modernization fixes
+select = ["F", "I", "UP"]

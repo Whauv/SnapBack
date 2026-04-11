@@ -33,7 +33,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import RedirectResponse, Response
 
 from services.analysis.summarizer import GroqSummarizer
-from services.api.auth import AuthManager, AuthenticatedPrincipal, is_public_path
+from services.api.auth import AuthenticatedPrincipal, AuthManager, is_public_path
 from services.api.contracts import (
     AudioChunkRequest,
     ExportRequest,
@@ -47,7 +47,7 @@ from services.api.contracts import (
 from services.api.rate_limit import InMemoryRateLimiter
 from services.api.security_headers import security_headers_middleware
 from services.api.session_service import SessionService
-from services.api.settings import AppSettings, ROOT_DIR
+from services.api.settings import ROOT_DIR, AppSettings
 from services.api.telemetry import telemetry_middleware
 from services.storage.database import delete_sessions_older_than, init_db
 

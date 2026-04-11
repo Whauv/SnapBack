@@ -1,8 +1,16 @@
 config/env/.env
+/.env
+.env
+*.log
+.ruff_cache/
 apps/api/.venv/
+.venv/
 __pycache__/
 *.pyc
 data/
+tests/**/_tmp/
 apps/zoom-app/node_modules/
+node_modules/
 apps/zoom-app/dist/
+dist/
 apps/zoom-app/tsconfig.tsbuildinfo

@@ -41,7 +41,7 @@ test("meet extension host adapter sends bearer token for transcript fetches", as
     };
   };
 
-  const { createMeetExtensionHostAdapter } = await import("./host-adapter.js");
+  const { createMeetExtensionHostAdapter } = await import("../../../apps/meet-extension/host-adapter.js");
   const host = createMeetExtensionHostAdapter();
   const transcript = await host.getTranscript("session-123");
 
