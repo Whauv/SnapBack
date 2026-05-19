@@ -22,7 +22,7 @@
     if (frame) return;
     frame = document.createElement("iframe");
     frame.id = "snapback-frame";
-    frame.src = chrome.runtime.getURL("sidepanel.html");
+    frame.src = chrome.runtime.getURL("public/sidepanel.html");
     document.body.appendChild(frame);
   }
 
