@@ -7,7 +7,8 @@ apps/api/.venv/
 .venv/
 __pycache__/
 *.pyc
-data/
+data/*
+!data/README.md
 tests/**/_tmp/
 apps/zoom-app/node_modules/
 node_modules/

@@ -6,17 +6,17 @@
   "permissions": ["storage", "activeTab", "scripting", "tabCapture", "tabs", "offscreen"],
   "host_permissions": ["http://localhost:8000/*", "https://meet.google.com/*"],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "src/background.js"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "public/popup.html",
     "default_title": "SnapBack"
   },
   "content_scripts": [
     {
       "matches": ["https://meet.google.com/*"],
-      "js": ["content_script.js"],
-      "css": ["content.css"]
+      "js": ["src/content_script.js"],
+      "css": ["public/content.css"]
     }
   ],
   "commands": {
@@ -29,7 +29,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel.html", "sidepanel.js", "sidepanel.css"],
+      "resources": ["public/sidepanel.html", "src/sidepanel.js", "public/sidepanel.css"],
       "matches": ["https://meet.google.com/*"]
     }
   ]
