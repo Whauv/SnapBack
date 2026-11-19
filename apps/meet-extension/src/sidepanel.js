@@ -1,4 +1,6 @@
 import { createMeetExtensionHostAdapter } from "./host-adapter.js";
+import { formatDuration, formatTimestamp } from "./shared/formatters.js";
+import { buildConsentCopy } from "./shared/consent.js";
 
 const sessionStatusNode = document.getElementById("session-status");
 const captureStatusNode = document.getElementById("capture-status");
@@ -35,23 +37,12 @@ function renderTranscriptEntries(entries) {
   transcriptNode.replaceChildren();
   for (const entry of entries) {
     const paragraph = createElement("p");
-    const strong = createElement("strong", { textContent: formatTime(entry.timestamp) });
+    const strong = createElement("strong", { textContent: formatTimestamp(entry.timestamp) });
     paragraph.appendChild(strong);
     paragraph.appendChild(document.createElement("br"));
     paragraph.appendChild(document.createTextNode(entry.text));
     transcriptNode.appendChild(paragraph);
   }
-}
-
-function formatDuration(totalSeconds) {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((value) => value.toString().padStart(2, "0")).join(":");
-}
-
-function formatTime(value) {
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 async function refreshTranscript() {
@@ -77,7 +68,7 @@ function renderState() {
   if (timerInterval) clearInterval(timerInterval);
 
   if (state.departureTimestamp) {
-    absenceStatusNode.textContent = `Away since ${formatTime(state.departureTimestamp)}`;
+    absenceStatusNode.textContent = `Away since ${formatTimestamp(state.departureTimestamp)}`;
     timerInterval = setInterval(() => {
       const seconds = Math.max(0, Math.floor((Date.now() - new Date(state.departureTimestamp).getTime()) / 1000));
       absenceTimerNode.textContent = formatDuration(seconds);
@@ -89,8 +80,7 @@ function renderState() {
 }
 
 function openConsentModal() {
-  consentCopyNode.textContent =
-    `Audio for this lecture will be processed via ${host.getConsentProviderLabel()}. No lecture data is shared without your consent.`;
+  consentCopyNode.textContent = buildConsentCopy(host.getConsentProviderLabel());
   consentModalNode.classList.remove("hidden");
 }
 

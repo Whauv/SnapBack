@@ -35,3 +35,15 @@ class InMemoryRateLimiter:
             if len(bucket.timestamps) >= self.limit:
                 raise HTTPException(status_code=429, detail="Rate limit exceeded. Please retry shortly.")
             bucket.timestamps.append(now)
+            self._evict_idle_buckets(now)
+
+    def _evict_idle_buckets(self, now: float) -> None:
+        """Drop buckets whose window has fully elapsed to bound memory growth."""
+        threshold = now - self.window_seconds
+        idle_keys = [
+            key
+            for key, bucket in self._buckets.items()
+            if not bucket.timestamps or bucket.timestamps[-1] <= threshold
+        ]
+        for key in idle_keys:
+            del self._buckets[key]

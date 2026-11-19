@@ -1,6 +1,6 @@
 """Session lifecycle and transcript routes."""
 
-from fastapi import Request
+from fastapi import APIRouter, Request
 
 from apps.api.dependencies import (
     get_request_principal,
@@ -8,7 +8,6 @@ from apps.api.dependencies import (
     session_service,
     settings,
 )
-from apps.api.routes._compat import APIRouter
 from services.api.contracts import (
     AudioChunkRequest,
     SessionEndRequest,

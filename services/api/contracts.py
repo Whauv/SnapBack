@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -11,15 +11,37 @@ TIMESTAMP_ERROR = "Timestamps must be valid ISO-8601 strings."
 
 
 def parse_timestamp(value: str) -> str:
+    """Validate an ISO-8601 timestamp and normalize it to UTC.
+
+    Normalizing every timestamp to a canonical UTC representation makes the
+    lexicographic ordering used in SQL (``ORDER BY timestamp``) and the recap
+    window comparisons correct regardless of the offset format the client sends
+    (``Z`` vs ``+00:00`` vs a non-UTC offset). Naive timestamps are assumed UTC.
+    """
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
         raise ValueError(TIMESTAMP_ERROR) from error
-    return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
 
 
 def clean_text(value: str, *, field_name: str) -> str:
+    """Collapse all internal whitespace. Use for identifiers, not free text."""
     cleaned = " ".join(value.split()).strip()
+    if not cleaned:
+        raise ValueError(f"{field_name} cannot be empty.")
+    return cleaned
+
+
+def clean_body_text(value: str, *, field_name: str) -> str:
+    """Trim surrounding whitespace but preserve internal formatting.
+
+    Used for transcript content, where collapsing newlines/tabs would corrupt
+    the captured text.
+    """
+    cleaned = value.strip()
     if not cleaned:
         raise ValueError(f"{field_name} cannot be empty.")
     return cleaned
@@ -55,7 +77,7 @@ class TranscriptChunkRequest(BaseModel):
     @field_validator("text")
     @classmethod
     def validate_text(cls, value: str) -> str:
-        return clean_text(value, field_name="text")
+        return clean_body_text(value, field_name="text")
 
     @field_validator("timestamp")
     @classmethod

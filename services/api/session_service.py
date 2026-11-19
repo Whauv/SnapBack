@@ -90,6 +90,13 @@ class SessionService:
         timestamp: str,
         source: str,
     ) -> dict[str, Any]:
+        """Validate and persist a raw audio chunk to disk.
+
+        Note: stored audio chunks are currently write-only. The Meet extension
+        posts them via ``POST /session/audio-chunk`` so audio is captured and
+        retained, but nothing re-reads or transcribes the files yet; the
+        retention job (``delete_sessions_older_than``) is their only consumer.
+        """
         self._get_owned_session(session_id, principal)
         if mime_type not in SUPPORTED_AUDIO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported audio mime_type.")
@@ -186,11 +193,11 @@ class SessionService:
 
     def export_pdf(self, *, principal: AuthenticatedPrincipal, session_id: str) -> bytes:
         bundle = self._get_owned_bundle(session_id, principal)
-        return build_pdf_export({"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps})
+        return build_pdf_export(bundle.as_export_dict())
 
     def export_markdown(self, *, principal: AuthenticatedPrincipal, session_id: str) -> str:
         bundle = self._get_owned_bundle(session_id, principal)
-        return build_markdown_export({"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps})
+        return build_markdown_export(bundle.as_export_dict())
 
     def export_notion(
         self,
@@ -205,7 +212,7 @@ class SessionService:
         if not api_key:
             raise HTTPException(status_code=400, detail="Missing Notion API key")
         return export_to_notion(
-            {"session": bundle.session, "transcript": bundle.transcript, "recaps": bundle.recaps},
+            bundle.as_export_dict(),
             api_key=api_key,
             page_id=page_id,
         )

@@ -1,0 +1,10 @@
+{
+  "name": "snapback",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SnapBack monorepo root. Holds cross-package scripts only; each app manages its own dependencies (no npm workspaces).",
+  "type": "module",
+  "scripts": {
+    "sync:shared": "node scripts/sync-shared.mjs"
+  }
+}

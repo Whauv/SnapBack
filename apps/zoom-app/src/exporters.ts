@@ -8,7 +8,7 @@ type ExportPayload = {
   fullSummary: string;
 };
 
-function buildMarkdown(payload: ExportPayload) {
+export function buildMarkdown(payload: ExportPayload) {
   const { session, transcript, recaps, fullSummary } = payload;
   const lines = [
     "# SnapBack Notes",

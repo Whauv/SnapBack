@@ -91,20 +91,29 @@ def build_pdf_export(bundle: dict[str, Any]) -> bytes:
         "",
         "Recaps:",
     ]:
-        pdf.multi_cell(0, 7, fill(line, width=95) if line else "")
+        pdf.multi_cell(0, 7, fill(line, width=95) if line else "", new_x="LMARGIN", new_y="NEXT")
 
     if recaps:
         for recap in recaps:
-            pdf.multi_cell(0, 7, fill(f"{recap['from_timestamp']} to {recap['to_timestamp']}", width=95))
-            pdf.multi_cell(0, 7, fill(recap["summary"], width=95))
-            pdf.multi_cell(0, 7, fill(f"Keywords: {', '.join(recap['keywords']) or 'None'}", width=95))
+            pdf.multi_cell(
+                0, 7, fill(f"{recap['from_timestamp']} to {recap['to_timestamp']}", width=95),
+                new_x="LMARGIN", new_y="NEXT",
+            )
+            pdf.multi_cell(0, 7, fill(recap["summary"], width=95), new_x="LMARGIN", new_y="NEXT")
+            pdf.multi_cell(
+                0, 7, fill(f"Keywords: {', '.join(recap['keywords']) or 'None'}", width=95),
+                new_x="LMARGIN", new_y="NEXT",
+            )
             pdf.ln(2)
     else:
-        pdf.multi_cell(0, 7, "No recaps generated yet.")
+        pdf.multi_cell(0, 7, "No recaps generated yet.", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.multi_cell(0, 8, "Transcript:")
+    pdf.multi_cell(0, 8, "Transcript:", new_x="LMARGIN", new_y="NEXT")
     for chunk in transcript:
-        pdf.multi_cell(0, 7, fill(f"[{chunk['timestamp']}] {chunk['text']}", width=95))
+        pdf.multi_cell(
+            0, 7, fill(f"[{chunk['timestamp']}] {chunk['text']}", width=95),
+            new_x="LMARGIN", new_y="NEXT",
+        )
 
     return bytes(pdf.output(dest="S"))
 

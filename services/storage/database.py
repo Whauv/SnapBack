@@ -9,7 +9,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +22,7 @@ DEFAULT_DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 def utc_now_iso() -> str:
     """Return the current time in ISO 8601 format (UTC)."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def get_db_path() -> Path:
@@ -191,70 +191,69 @@ def append_transcript_chunk(session_id: str, text: str, timestamp: str) -> dict[
     return dict(row)
 
 
+_TRANSCRIPT_SELECT = (
+    "SELECT id, session_id, text, timestamp, created_at FROM transcript_chunks WHERE session_id = ?"
+)
+_ORDER_ASC = "timestamp ASC, id ASC"
+_ORDER_DESC = "timestamp DESC, id DESC"
+
+
+def _query_transcript_chunks(
+    session_id: str,
+    *,
+    extra_where: str = "",
+    params: tuple[Any, ...] = (),
+    order: str = _ORDER_ASC,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Run a transcript-chunk query sharing a common SELECT/ORDER shape.
+
+    ``extra_where``/``order``/``limit`` are built only from internal literals
+    (never user input); user values are passed as bound ``params``.
+    """
+    sql = f"{_TRANSCRIPT_SELECT}{extra_where} ORDER BY {order}"
+    if limit is not None:
+        sql += f" LIMIT {int(limit)}"
+    with get_connection() as connection:
+        rows = connection.execute(sql, (session_id, *params)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_transcript(session_id: str) -> list[dict[str, Any]]:
     """Get the full transcript for the session."""
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, session_id, text, timestamp, created_at
-            FROM transcript_chunks
-            WHERE session_id = ?
-            ORDER BY timestamp ASC, id ASC
-            """,
-            (session_id,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    return _query_transcript_chunks(session_id)
 
 
 def get_transcript_window(session_id: str, from_timestamp: str, to_timestamp: str) -> list[dict[str, Any]]:
     """Get transcript chunks within the timestamp window."""
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, session_id, text, timestamp, created_at
-            FROM transcript_chunks
-            WHERE session_id = ?
-              AND timestamp >= ?
-              AND timestamp <= ?
-            ORDER BY timestamp ASC, id ASC
-            """,
-            (session_id, from_timestamp, to_timestamp),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    return _query_transcript_chunks(
+        session_id,
+        extra_where=" AND timestamp >= ? AND timestamp <= ?",
+        params=(from_timestamp, to_timestamp),
+    )
 
 
 def get_last_chunk_before(session_id: str, timestamp: str) -> dict[str, Any] | None:
     """Get the last transcript chunk before the given timestamp."""
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT id, session_id, text, timestamp, created_at
-            FROM transcript_chunks
-            WHERE session_id = ?
-              AND timestamp < ?
-            ORDER BY timestamp DESC, id DESC
-            LIMIT 1
-            """,
-            (session_id, timestamp),
-        ).fetchone()
-    return dict(row) if row else None
+    rows = _query_transcript_chunks(
+        session_id,
+        extra_where=" AND timestamp < ?",
+        params=(timestamp,),
+        order=_ORDER_DESC,
+        limit=1,
+    )
+    return rows[0] if rows else None
 
 
 def get_first_chunk_after(session_id: str, timestamp: str) -> dict[str, Any] | None:
     """Get the first transcript chunk after the given timestamp."""
-    with get_connection() as connection:
-        row = connection.execute(
-            """
-            SELECT id, session_id, text, timestamp, created_at
-            FROM transcript_chunks
-            WHERE session_id = ?
-              AND timestamp >= ?
-            ORDER BY timestamp ASC, id ASC
-            LIMIT 1
-            """,
-            (session_id, timestamp),
-        ).fetchone()
-    return dict(row) if row else None
+    rows = _query_transcript_chunks(
+        session_id,
+        extra_where=" AND timestamp >= ?",
+        params=(timestamp,),
+        limit=1,
+    )
+    return rows[0] if rows else None
 
 
 def save_recap(
@@ -347,7 +346,7 @@ def save_audio_chunk(
 
 def delete_sessions_older_than(hours: int) -> int:
     """Delete sessions and associated data older than the specified hours."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     cutoff_iso = cutoff.isoformat()
     with get_connection() as connection:
         session_rows = connection.execute(
@@ -384,6 +383,10 @@ class SessionBundle:
     session: dict[str, Any]
     transcript: list[dict[str, Any]]
     recaps: list[dict[str, Any]]
+
+    def as_export_dict(self) -> dict[str, Any]:
+        """Return the bundle shape expected by the exporters."""
+        return {"session": self.session, "transcript": self.transcript, "recaps": self.recaps}
 
 
 def get_session_bundle(session_id: str, owner_id: str | None = None) -> SessionBundle | None:

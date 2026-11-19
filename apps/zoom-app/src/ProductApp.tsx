@@ -1,5 +1,4 @@
 import { Moon } from "lucide-react";
-import { exportSessionFile } from "./api";
 import { useSnapBackPanel } from "./core/useSnapBackPanel";
 import ConsentBanner from "./components/ConsentBanner";
 import FullSummaryModal from "./components/FullSummaryModal";
@@ -9,7 +8,6 @@ import SessionControls from "./components/SessionControls";
 import SettingsPanel from "./components/SettingsPanel";
 import StudyPackPanel from "./components/StudyPackPanel";
 import TranscriptDrawer from "./components/TranscriptDrawer";
-import { exportMarkdownNotes, exportPdfNotes } from "./exporters";
 import { createZoomHostAdapter } from "./hosts";
 import { formatTimestamp } from "./utils";
 
@@ -17,36 +15,6 @@ const host = createZoomHostAdapter();
 
 export default function ProductApp() {
   const panel = useSnapBackPanel({ host, settingsStorageKey: `snapback.${host.kind}.settings` });
-
-  async function handleExportPdf() {
-    if (!panel.sessionId) return;
-    try {
-      await exportSessionFile("pdf", panel.sessionId);
-    } catch {
-      // Keep client-side export as the primary fallback.
-    }
-    exportPdfNotes({
-      session: panel.session,
-      transcript: panel.transcript,
-      recaps: panel.recaps,
-      fullSummary: panel.fullSummary,
-    });
-  }
-
-  async function handleExportMarkdown() {
-    if (!panel.sessionId) return;
-    try {
-      await exportSessionFile("markdown", panel.sessionId);
-    } catch {
-      // Keep client-side export as the primary fallback.
-    }
-    exportMarkdownNotes({
-      session: panel.session,
-      transcript: panel.transcript,
-      recaps: panel.recaps,
-      fullSummary: panel.fullSummary,
-    });
-  }
 
   return (
     <div className={panel.darkMode ? "dark" : ""}>
@@ -73,7 +41,7 @@ export default function ProductApp() {
               </div>
               <button
                 className="rounded-full bg-white/10 p-2 hover:bg-white/20"
-                onClick={() => panel.setDarkMode((value) => !value)}
+                onClick={panel.toggleDarkMode}
               >
                 <Moon size={16} />
               </button>
@@ -92,8 +60,8 @@ export default function ProductApp() {
               canEnd={panel.canEnd}
               onStart={() => void panel.handleStartSession()}
               onEnd={() => void panel.handleEndSession()}
-              onExportPdf={() => void handleExportPdf()}
-              onExportMarkdown={() => void handleExportMarkdown()}
+              onExportPdf={() => void panel.handleExportPdf()}
+              onExportMarkdown={() => void panel.handleExportMarkdown()}
               onExportNotion={() => void panel.handleExportNotion()}
             />
 
@@ -116,20 +84,9 @@ export default function ProductApp() {
             />
 
             <SettingsPanel
-              mode={panel.mode}
-              recapLength={panel.recapLength}
-              language={panel.language}
-              apiToken={panel.apiToken}
-              darkMode={panel.darkMode}
-              notionApiKey={panel.notionApiKey}
-              notionPageId={panel.notionPageId}
-              onModeChange={panel.setMode}
-              onRecapLengthChange={panel.setRecapLength}
-              onLanguageChange={panel.setLanguage}
-              onApiTokenChange={panel.setApiToken}
-              onDarkModeToggle={() => panel.setDarkMode((value) => !value)}
-              onNotionApiKeyChange={panel.setNotionApiKey}
-              onNotionPageIdChange={panel.setNotionPageId}
+              settings={panel.settings}
+              onChange={panel.updateSettings}
+              onToggleDarkMode={panel.toggleDarkMode}
             />
           </div>
 
