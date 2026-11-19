@@ -1644,11 +1644,11 @@
 <span class="code-command">cd</span> <span class="code-path">snapback</span>
 
 <span class="code-comment">2. Backend</span>
-<span class="code-command">pip install -r requirements.txt</span>
-<span class="code-command">python -m uvicorn app.main:app --reload</span>
+<span class="code-command">pip install -r apps/api/requirements.txt</span>
+<span class="code-command">python -m uvicorn apps.api.main:app --reload --port 8000</span>
 
 <span class="code-comment">3. Extension</span>
-<span class="code-command">Load /extension folder as unpacked Chrome extension</span></code></pre>
+<span class="code-command">Load apps/meet-extension folder as unpacked Chrome extension</span></code></pre>
             </div>
           </div>
         </section>
@@ -1744,7 +1744,7 @@
         const tiltTargets = Array.from(document.querySelectorAll("[data-tilt]"));
         const floatTargets = Array.from(document.querySelectorAll("[data-float]"));
         const fallbackRevealTargets = Array.from(document.querySelectorAll(".reveal-fallback, .fade-fallback"));
-        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: no-preference)").matches;
+        const motionAllowed = window.matchMedia("(prefers-reduced-motion: no-preference)").matches;
         const supportsScrollTimeline =
           typeof CSS !== "undefined" &&
           CSS.supports &&
@@ -1797,7 +1797,7 @@
 
         scheduleTimelineLoop();
 
-        if (!supportsScrollTimeline && prefersReducedMotion) {
+        if (!supportsScrollTimeline && motionAllowed) {
           const revealObserver = new IntersectionObserver(
             (entries) => {
               entries.forEach((entry) => {
@@ -1843,7 +1843,7 @@
           });
         }
 
-        if (prefersReducedMotion) {
+        if (motionAllowed) {
           const pointerTargets = [...tiltTargets];
           let pointerX = window.innerWidth * 0.5;
           let pointerY = window.innerHeight * 0.5;

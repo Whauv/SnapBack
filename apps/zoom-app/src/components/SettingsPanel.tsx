@@ -1,39 +1,14 @@
+import type { SnapBackSettings } from "../core/useSettingsPersistence";
 import type { Mode, RecapLength } from "../types";
 
 type SettingsPanelProps = {
-  mode: Mode;
-  recapLength: RecapLength;
-  language: string;
-  apiToken: string;
-  darkMode: boolean;
-  notionApiKey: string;
-  notionPageId: string;
-  onModeChange: (mode: Mode) => void;
-  onRecapLengthChange: (length: RecapLength) => void;
-  onLanguageChange: (language: string) => void;
-  onApiTokenChange: (value: string) => void;
-  onDarkModeToggle: () => void;
-  onNotionApiKeyChange: (value: string) => void;
-  onNotionPageIdChange: (value: string) => void;
+  settings: SnapBackSettings;
+  onChange: (partial: Partial<SnapBackSettings>) => void;
+  onToggleDarkMode: () => void;
 };
 
-function SettingsPanel(props: SettingsPanelProps) {
-  const {
-    mode,
-    recapLength,
-    language,
-    apiToken,
-    darkMode,
-    notionApiKey,
-    notionPageId,
-    onModeChange,
-    onRecapLengthChange,
-    onLanguageChange,
-    onApiTokenChange,
-    onDarkModeToggle,
-    onNotionApiKeyChange,
-    onNotionPageIdChange,
-  } = props;
+function SettingsPanel({ settings, onChange, onToggleDarkMode }: SettingsPanelProps) {
+  const { mode, recapLength, language, apiToken, darkMode, notionApiKey, notionPageId } = settings;
 
   return (
     <section className="rounded-[24px] bg-mist p-4 dark:bg-slate-800">
@@ -41,14 +16,14 @@ function SettingsPanel(props: SettingsPanelProps) {
       <div className="mt-3 space-y-3 text-sm">
         <label className="flex items-center justify-between gap-3">
           <span>Transcription mode</span>
-          <select value={mode} onChange={(event) => onModeChange(event.target.value as Mode)} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
+          <select value={mode} onChange={(event) => onChange({ mode: event.target.value as Mode })} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
             <option value="cloud">Cloud mode</option>
             <option value="local">Local mode</option>
           </select>
         </label>
         <label className="flex items-center justify-between gap-3">
           <span>Recap length</span>
-          <select value={recapLength} onChange={(event) => onRecapLengthChange(event.target.value as RecapLength)} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
+          <select value={recapLength} onChange={(event) => onChange({ recapLength: event.target.value as RecapLength })} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
             <option value="brief">Brief</option>
             <option value="standard">Standard</option>
             <option value="detailed">Detailed</option>
@@ -56,7 +31,7 @@ function SettingsPanel(props: SettingsPanelProps) {
         </label>
         <label className="flex items-center justify-between gap-3">
           <span>Summary language</span>
-          <select value={language} onChange={(event) => onLanguageChange(event.target.value)} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
+          <select value={language} onChange={(event) => onChange({ language: event.target.value })} className="rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900">
             <option>English</option>
             <option>Spanish</option>
             <option>French</option>
@@ -65,13 +40,13 @@ function SettingsPanel(props: SettingsPanelProps) {
         </label>
         <label className="flex items-center justify-between gap-3">
           <span>Dark mode</span>
-          <button className="rounded-full border border-ink/15 px-3 py-2 text-xs font-semibold" onClick={onDarkModeToggle}>
+          <button className="rounded-full border border-ink/15 px-3 py-2 text-xs font-semibold" onClick={onToggleDarkMode}>
             {darkMode ? "On" : "Off"}
           </button>
         </label>
-        <input type="password" value={apiToken} onChange={(event) => onApiTokenChange(event.target.value)} placeholder="SnapBack API token" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
-        <input type="password" value={notionApiKey} onChange={(event) => onNotionApiKeyChange(event.target.value)} placeholder="Optional Notion API key override" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
-        <input value={notionPageId} onChange={(event) => onNotionPageIdChange(event.target.value)} placeholder="Notion page ID" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" />
+        <input type="password" value={apiToken} onChange={(event) => onChange({ apiToken: event.target.value })} placeholder="SnapBack API token" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
+        <input type="password" value={notionApiKey} onChange={(event) => onChange({ notionApiKey: event.target.value })} placeholder="Optional Notion API key override" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" autoComplete="off" />
+        <input value={notionPageId} onChange={(event) => onChange({ notionPageId: event.target.value })} placeholder="Notion page ID" className="w-full rounded-xl border border-ink/15 bg-white px-3 py-2 dark:bg-slate-900" />
         <p className="text-xs leading-5 text-ink/60 dark:text-slate-400">
           Cloud mode streams audio through AssemblyAI. Local mode uses whisper.cpp on-device. Session data is cleaned up
           automatically based on your backend retention window.

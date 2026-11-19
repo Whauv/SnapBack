@@ -34,10 +34,9 @@ def create_app() -> FastAPI:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
     app.middleware("http")(attach_security_context)
 
-    if hasattr(app, "include_router"):
-        app.include_router(health_router)
-        app.include_router(session_router)
-        app.include_router(recap_router)
-        app.include_router(export_router)
-        app.include_router(study_router)
+    app.include_router(health_router)
+    app.include_router(session_router)
+    app.include_router(recap_router)
+    app.include_router(export_router)
+    app.include_router(study_router)
     return app

@@ -1,9 +1,9 @@
 """Health and root routes."""
 
+from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 
 from apps.api.dependencies import settings
-from apps.api.routes._compat import APIRouter
 
 router = APIRouter()
 

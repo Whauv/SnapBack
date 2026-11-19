@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { exportMarkdownNotes, exportPdfNotes } from "../exporters";
 import type { SnapBackHostAdapter } from "../hosts";
-import type { Mode, Recap, RecapLength, SessionRecord, StudyPack, TranscriptChunk } from "../types";
-import { getApiToken, setApiToken as persistApiToken } from "../hosts/auth";
+import { exportSessionFile } from "../hosts/backendClient";
+import type { Recap, SessionRecord, StudyPack, TranscriptChunk } from "../types";
+import { useAbsenceClock } from "./useAbsenceClock";
+import { useSettingsPersistence } from "./useSettingsPersistence";
 
 type UseSnapBackPanelOptions = {
   host: SnapBackHostAdapter;
@@ -9,6 +12,9 @@ type UseSnapBackPanelOptions = {
 };
 
 export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.settings" }: UseSnapBackPanelOptions) {
+  const { settings, update: updateSettings, toggleDarkMode } = useSettingsPersistence(settingsStorageKey);
+  const { mode, language, recapLength, notionApiKey, notionPageId, darkMode } = settings;
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [transcript, setTranscript] = useState<TranscriptChunk[]>([]);
@@ -16,67 +22,17 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
   const [departureTimestamp, setDepartureTimestamp] = useState<string | null>(null);
   const [latestSummary, setLatestSummary] = useState<Recap | null>(null);
   const [fullSummary, setFullSummary] = useState("");
-  const [mode, setMode] = useState<Mode>("cloud");
-  const [recapLength, setRecapLength] = useState<RecapLength>("standard");
-  const [language, setLanguage] = useState("English");
-  const [apiToken, setApiToken] = useState(() => getApiToken());
-  const [notionApiKey, setNotionApiKey] = useState("");
-  const [notionPageId, setNotionPageId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [studyPack, setStudyPack] = useState<StudyPack | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(Date.now());
   const [meetingContextLabel, setMeetingContextLabel] = useState(host.label);
   const pendingStartRef = useRef(false);
 
-  const absenceSeconds = useMemo(() => {
-    if (!departureTimestamp) return 0;
-    return Math.max(0, Math.floor((nowMs - new Date(departureTimestamp).getTime()) / 1000));
-  }, [departureTimestamp, nowMs]);
-
-  useEffect(() => {
-    const savedSettings = window.localStorage.getItem(settingsStorageKey);
-    if (!savedSettings) return;
-    try {
-      const parsed = JSON.parse(savedSettings) as Partial<{
-        mode: Mode;
-        recapLength: RecapLength;
-        language: string;
-        apiToken: string;
-        notionPageId: string;
-        darkMode: boolean;
-      }>;
-      if (parsed.mode) setMode(parsed.mode);
-      if (parsed.recapLength) setRecapLength(parsed.recapLength);
-      if (parsed.language) setLanguage(parsed.language);
-      if (parsed.apiToken) setApiToken(parsed.apiToken);
-      if (parsed.notionPageId) setNotionPageId(parsed.notionPageId);
-      if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
-    } catch {
-      window.localStorage.removeItem(settingsStorageKey);
-    }
-  }, [settingsStorageKey]);
-
-  useEffect(() => {
-    persistApiToken(apiToken);
-  }, [apiToken]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      settingsStorageKey,
-      JSON.stringify({ mode, recapLength, language, apiToken, notionPageId, darkMode }),
-    );
-  }, [apiToken, darkMode, language, mode, notionPageId, recapLength, settingsStorageKey]);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", darkMode);
-    document.body.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+  const absenceSeconds = useAbsenceClock(departureTimestamp);
 
   useEffect(() => {
     void host.getMeetingContext().then((context) => {
@@ -92,15 +48,10 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
       void loadSession(sessionId);
     }, 5000);
     return () => window.clearInterval(interval);
+    // Polling should restart only when the session id changes, not when the
+    // per-render loadSession closure is recreated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
-
-  useEffect(() => {
-    if (!departureTimestamp) return;
-    const interval = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [departureTimestamp]);
 
   async function loadSession(id: string) {
     const data = await host.getSessionTranscript(id);
@@ -186,6 +137,21 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     }
   }
 
+  async function handleExport(kind: "pdf" | "markdown") {
+    if (!sessionId) return;
+    try {
+      await exportSessionFile(kind, sessionId);
+    } catch {
+      // Keep client-side export as the primary fallback.
+    }
+    const payload = { session, transcript, recaps, fullSummary };
+    if (kind === "pdf") {
+      exportPdfNotes(payload);
+    } else {
+      exportMarkdownNotes(payload);
+    }
+  }
+
   async function handleExportNotion() {
     if (!sessionId || !notionPageId) {
       setErrorMessage("Add a Notion Page ID in settings before exporting.");
@@ -222,35 +188,26 @@ export function useSnapBackPanel({ host, settingsStorageKey = "snapback.zoom.set
     errorMessage,
     fullSummary,
     host,
-    language,
-    apiToken,
     latestSummary,
     loading,
     meetingContextLabel,
-    mode,
-    notionApiKey,
-    notionPageId,
-    recapLength,
     recaps,
     session,
     sessionId,
+    settings,
     showSummaryModal,
     studyPack,
     transcript,
-    fullSummaryOpen: showSummaryModal,
-    setDarkMode,
+    updateSettings,
+    toggleDarkMode,
     setDrawerOpen,
-    setLanguage,
-    setApiToken,
-    setMode,
-    setNotionApiKey,
-    setNotionPageId,
-    setRecapLength,
     setShowSummaryModal,
     handleCatchUp,
     handleConsentAccept,
     handleEndSession,
+    handleExportMarkdown: () => handleExport("markdown"),
     handleExportNotion,
+    handleExportPdf: () => handleExport("pdf"),
     handleGenerateStudyPack,
     handleLeave: () => setDepartureTimestamp(new Date().toISOString()),
     handleStartSession,

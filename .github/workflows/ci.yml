@@ -40,8 +40,19 @@ jobs:
       - name: Install Zoom app dependencies
         working-directory: apps/zoom-app
         run: npm ci
+      - name: Lint Zoom app
+        working-directory: apps/zoom-app
+        run: npm run lint
+      - name: Verify shared package is synced into the extension
+        run: |
+          node scripts/sync-shared.mjs
+          git diff --exit-code -- apps/meet-extension/src/shared \
+            || (echo "packages/shared changed but the extension copy is stale. Run 'npm run sync:shared' and commit." && exit 1)
       - name: Build Zoom app
         working-directory: apps/zoom-app
         run: npm run build
-      - name: Run Meet extension contract tests
-        run: node --test tests/apps/meet_extension/host-adapter.test.mjs
+      - name: Run Zoom app unit tests
+        working-directory: apps/zoom-app
+        run: npm test
+      - name: Run shared package and Meet extension tests
+        run: node --test tests/packages/shared/*.test.mjs tests/apps/meet_extension/*.test.mjs

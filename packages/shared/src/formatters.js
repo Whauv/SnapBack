@@ -1,0 +1,16 @@
+// Shared time/duration formatters used by both the zoom-app and the Meet
+// extension. Authored as plain ESM (with a sibling .d.ts for TypeScript
+// consumers) so the no-build extension can import the same source after the
+// sync step copies it in. Keep this dependency-free.
+
+export function formatTimestamp(timestamp) {
+  if (!timestamp) return "Not set";
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => value.toString().padStart(2, "0")).join(":");
+}

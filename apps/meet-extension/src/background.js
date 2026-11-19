@@ -280,14 +280,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
-      if (message.type === "OPEN_LECTURELENS_PANEL") {
+      if (message.type === "OPEN_SNAPBACK_PANEL") {
         const tabId = sender.tab?.id || message.tabId;
         await openSnapBackPanel(tabId);
-        sendResponse({ ok: true });
-        return;
-      }
-
-      if (message.type === "OPEN_SNAPBACK_PANEL") {
         sendResponse({ ok: true });
         return;
       }

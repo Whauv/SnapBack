@@ -1,0 +1,14 @@
+{
+  "name": "@snapback/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Framework-agnostic code shared by the SnapBack zoom-app and Meet extension (plain ESM + .d.ts, no build step).",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": "./src/index.js",
+    "./formatters": "./src/formatters.js",
+    "./consent": "./src/consent.js"
+  }
+}

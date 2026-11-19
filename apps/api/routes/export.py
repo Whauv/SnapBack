@@ -1,10 +1,9 @@
 """Export routes."""
 
-from fastapi import Request
+from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
 from apps.api.dependencies import get_request_principal, session_service
-from apps.api.routes._compat import APIRouter
 from services.api.contracts import ExportRequest, NotionExportRequest
 
 router = APIRouter(prefix="/export", tags=["export"])

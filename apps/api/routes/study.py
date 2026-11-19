@@ -1,9 +1,8 @@
 """Study pack routes."""
 
-from fastapi import Request
+from fastapi import APIRouter, Request
 
 from apps.api.dependencies import get_request_principal, session_service
-from apps.api.routes._compat import APIRouter
 from services.api.contracts import StudyPackRequest
 
 router = APIRouter(tags=["study"])

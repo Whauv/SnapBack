@@ -27,7 +27,8 @@ except Exception:  # pragma: no cover - optional dependency fallback
         return False
 
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from services.analysis.summarizer import GroqSummarizer
 from services.api.auth import AuthenticatedPrincipal, AuthManager, is_public_path
@@ -94,13 +95,20 @@ async def attach_security_context(request: Request, call_next):
     """Attach auth, telemetry, rate limiting, and security headers."""
 
     async def secured_call(next_request: Request):
-        if not is_public_path(next_request.url.path):
-            principal = auth_manager.authenticate(next_request)
-            next_request.state.principal = principal
-            client_host = next_request.client.host if next_request.client else "unknown"
-            rate_limiter.enforce(
-                f"{principal.principal_id}:{client_host}:{next_request.url.path}"
-            )
+        try:
+            if not is_public_path(next_request.url.path):
+                principal = auth_manager.authenticate(next_request)
+                next_request.state.principal = principal
+                client_host = next_request.client.host if next_request.client else "unknown"
+                rate_limiter.enforce(
+                    f"{principal.principal_id}:{client_host}:{next_request.url.path}"
+                )
+        except HTTPException as exc:
+            # Auth/rate-limit errors are raised inside this middleware, above the
+            # routing layer that would normally translate HTTPException into a
+            # response, so convert them here. Returning the response keeps the
+            # security headers applied by the wrapping middleware.
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
         return await telemetry_middleware(next_request, call_next)
 
     return await security_headers_middleware(request, secured_call)
