@@ -14,7 +14,7 @@ import threading
 import time
 import wave
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pyaudio
@@ -41,7 +41,7 @@ MAX_RETRIES = 2
 
 def utc_now_iso() -> str:
     """Return the current time in ISO 8601 format (UTC)."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass

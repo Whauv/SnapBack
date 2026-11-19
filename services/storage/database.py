@@ -9,7 +9,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +22,7 @@ DEFAULT_DB_PATH = ROOT_DIR / "data" / "snapback.db"
 
 def utc_now_iso() -> str:
     """Return the current time in ISO 8601 format (UTC)."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def get_db_path() -> Path:
@@ -346,7 +346,7 @@ def save_audio_chunk(
 
 def delete_sessions_older_than(hours: int) -> int:
     """Delete sessions and associated data older than the specified hours."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     cutoff_iso = cutoff.isoformat()
     with get_connection() as connection:
         session_rows = connection.execute(
